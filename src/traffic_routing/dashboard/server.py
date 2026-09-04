@@ -26,7 +26,7 @@ from traffic_routing.config import (
 from traffic_routing.congestion_engine import DynamicCongestionEngine
 from traffic_routing.cost_matrix import CostMatrixCalculator
 from traffic_routing.graph_generator import generate_road_network
-from traffic_routing.solvers import QPSOSolver
+from traffic_routing.solvers import GNNSolver, PSOSolver, QPSOSolver
 from traffic_routing.vrp_model import create_vrp_problem
 
 
@@ -90,7 +90,132 @@ def _build_simulation_state(
     problem = create_vrp_problem(cost_matrix, vrp_config, seed=seed)
     penalty_config = PenaltyConfig()
 
+def _format_solver_solution(
+    sol_res,
+    cost_matrix,
+    coords,
+    palette,
+    num_vehicles,
+    vehicle_cap,
+    network,
+    problem,
+    sim_clock,
+    preset_str,
+    algo_name="QPSO"
+):
+    """Formats vehicle routes and metrics for a solver result."""
+    routes_data = []
+    if sol_res.solution and sol_res.solution.routes:
+        for k, route in enumerate(sol_res.solution.routes):
+            route_coords = []
+            route_node_ids = []
+            for i in range(len(route) - 1):
+                p, q = route[i], route[i + 1]
+                path_nodes = cost_matrix.get_path_nodes(p, q)
+                for node in path_nodes:
+                    route_node_ids.append(int(node))
+                    route_coords.append([float(coords[node, 0]), float(coords[node, 1])])
+
+            r_eval = sol_res.solution.route_evaluations[k] if k < len(sol_res.solution.route_evaluations) else None
+            is_r_feasible = (r_eval.capacity_violation <= 1e-6 and r_eval.time_window_penalty <= 1e-6) if r_eval else True
+            arrival_ts = [float(t) for t in r_eval.arrival_times] if r_eval and hasattr(r_eval, "arrival_times") else []
+            routes_data.append({
+                "vehicle_id": k + 1,
+                "color": palette[k % len(palette)],
+                "stops": [int(s) for s in route],
+                "path_node_ids": route_node_ids,
+                "coordinates": route_coords,
+                "total_load": float(r_eval.total_load) if r_eval else 0.0,
+                "total_time": float(r_eval.total_time) if r_eval else 0.0,
+                "total_distance": float(r_eval.total_distance) if r_eval else 0.0,
+                "capacity_violation": float(r_eval.capacity_violation) if r_eval else 0.0,
+                "time_window_penalty": float(r_eval.time_window_penalty) if r_eval else 0.0,
+                "arrival_times": arrival_ts,
+                "is_feasible": is_r_feasible
+            })
+
+    metrics = {
+        "algorithm": algo_name,
+        "total_time": round(float(sol_res.solution.total_time), 2),
+        "total_distance": round(float(sol_res.solution.total_distance), 1),
+        "vehicles_utilized": len(sol_res.solution.routes),
+        "total_vehicles": int(num_vehicles),
+        "vehicle_capacity": float(vehicle_cap),
+        "compute_time_ms": round(float(sol_res.compute_time_ms), 2),
+        "is_feasible": bool(sol_res.solution.is_feasible),
+        "fitness": round(float(sol_res.solution.penalized_fitness), 3),
+        "total_capacity_violation": round(float(sol_res.solution.total_capacity_violation), 2) if hasattr(sol_res.solution, "total_capacity_violation") else 0.0,
+        "total_tw_penalty": round(float(sol_res.solution.total_tw_penalty), 2) if hasattr(sol_res.solution, "total_tw_penalty") else 0.0,
+        "num_edges": int(network.num_edges),
+        "num_nodes": int(network.num_nodes),
+        "num_customers": int(problem.num_customers),
+        "sim_clock": float(sim_clock),
+        "preset": preset_str
+    }
+
+    return {
+        "routes": routes_data,
+        "metrics": metrics
+    }
+
+
+def _build_simulation_state(
+    preset_str: str = "Rush-Hour Bottleneck",
+    sim_clock: float = 8.0,
+    num_customers: int = 15,
+    num_vehicles: int = 4,
+    vehicle_cap: float = 100.0,
+    swarm_size: int = 40,
+    max_iter: int = 120,
+    seed: int = 42
+) -> Dict[str, Any]:
+    """Builds and caches full network simulation and multi-solver optimization state."""
+    # 1. Graph Generation (§2)
+    net_config = NetworkConfig(
+        num_nodes=max(num_customers + 10, 25),
+        num_customers=num_customers,
+        seed=seed
+    )
+    network = generate_road_network(net_config)
+    coords = network.coordinates
+
+    # 2. Dynamic Congestion (§3)
+    preset_map = {
+        "Uniform Flow": TrafficPreset.UNIFORM,
+        "Rush-Hour Bottleneck": TrafficPreset.RUSH_HOUR,
+        "Incident Disruption": TrafficPreset.INCIDENT
+    }
+    preset = preset_map.get(preset_str, TrafficPreset.RUSH_HOUR)
+    congestion_config = CongestionConfig(
+        preset=preset,
+        rush_hour_alpha_max=3.5,
+        rush_hour_t_start=7.0,
+        rush_hour_t_end=10.0,
+        seed=seed
+    )
+    if preset == TrafficPreset.INCIDENT:
+        congestion_config.incident_alpha = 8.0
+
+    congestion_engine = DynamicCongestionEngine(network, congestion_config)
+    congestion_state = congestion_engine.evaluate(t=sim_clock)
+    dynamic_graph = congestion_engine.create_weighted_graph(congestion_state)
+
+    matrix_calc = CostMatrixCalculator(network)
+    cost_matrix = matrix_calc.compute(dynamic_graph, sim_time=sim_clock)
+
+    vrp_config = VRPConfig(vehicle_capacity=vehicle_cap, num_vehicles=num_vehicles)
+    problem = create_vrp_problem(cost_matrix, vrp_config, seed=seed)
+    penalty_config = PenaltyConfig()
+
     solver_cfg = SolverConfig(swarm_size=swarm_size, max_iterations=max_iter, seed=seed)
+
+    # Solve across all 3 paradigms for immediate comparison (<15ms total via C++)
+    gnn_solver = GNNSolver(problem, penalty_config)
+    res_gnn = gnn_solver.solve()
+
+    pso_solver = PSOSolver(problem, penalty_config, solver_cfg)
+    res_pso = pso_solver.solve()
+
     qpso_solver = QPSOSolver(problem, penalty_config, solver_cfg)
     sol_res = qpso_solver.solve()
 
@@ -135,35 +260,16 @@ def _build_simulation_state(
             "is_closed": is_closed
         })
 
-    # Format Vehicle Tour Routes
     palette = ["#38bdf8", "#a855f7", "#ec4899", "#f97316", "#eab308", "#06b6d4"]
-    routes_data = []
-    if sol_res.solution and sol_res.solution.routes:
-        for k, route in enumerate(sol_res.solution.routes):
-            route_coords = []
-            route_node_ids = []
-            for i in range(len(route) - 1):
-                p, q = route[i], route[i + 1]
-                path_nodes = cost_matrix.get_path_nodes(p, q)
-                for node in path_nodes:
-                    route_node_ids.append(int(node))
-                    route_coords.append([float(coords[node, 0]), float(coords[node, 1])])
+    sol_gnn_data = _format_solver_solution(res_gnn, cost_matrix, coords, palette, num_vehicles, vehicle_cap, network, problem, sim_clock, preset_str, "GNN Baseline")
+    sol_pso_data = _format_solver_solution(res_pso, cost_matrix, coords, palette, num_vehicles, vehicle_cap, network, problem, sim_clock, preset_str, "Classical PSO")
+    sol_qpso_data = _format_solver_solution(sol_res, cost_matrix, coords, palette, num_vehicles, vehicle_cap, network, problem, sim_clock, preset_str, "Quantum-Inspired PSO (QPSO)")
 
-            r_eval = sol_res.solution.route_evaluations[k] if k < len(sol_res.solution.route_evaluations) else None
-            is_r_feasible = (r_eval.capacity_violation <= 1e-6 and r_eval.time_window_penalty <= 1e-6) if r_eval else True
-            routes_data.append({
-                "vehicle_id": k + 1,
-                "color": palette[k % len(palette)],
-                "stops": [int(s) for s in route],
-                "path_node_ids": route_node_ids,
-                "coordinates": route_coords,
-                "total_load": float(r_eval.total_load) if r_eval else 0.0,
-                "total_time": float(r_eval.total_time) if r_eval else 0.0,
-                "total_distance": float(r_eval.total_distance) if r_eval else 0.0,
-                "capacity_violation": float(r_eval.capacity_violation) if r_eval else 0.0,
-                "time_window_penalty": float(r_eval.time_window_penalty) if r_eval else 0.0,
-                "is_feasible": is_r_feasible
-            })
+    solutions = {
+        "gnn": sol_gnn_data,
+        "pso": sol_pso_data,
+        "qpso": sol_qpso_data
+    }
 
     # Format Customer Stops
     customer_stops = []
@@ -200,30 +306,14 @@ def _build_simulation_state(
         ]
     }
 
-    # Summary Metrics
-    metrics = {
-        "total_time": round(float(sol_res.solution.total_time), 2),
-        "total_distance": round(float(sol_res.solution.total_distance), 1),
-        "vehicles_utilized": len(sol_res.solution.routes),
-        "total_vehicles": int(num_vehicles),
-        "vehicle_capacity": float(vehicle_cap),
-        "compute_time_ms": round(float(sol_res.compute_time_ms), 2),
-        "is_feasible": bool(sol_res.solution.is_feasible),
-        "fitness": round(float(sol_res.solution.penalized_fitness), 3),
-        "num_edges": int(network.num_edges),
-        "num_nodes": int(network.num_nodes),
-        "num_customers": int(problem.num_customers),
-        "sim_clock": float(sim_clock),
-        "preset": preset_str
-    }
-
     return {
-        "metrics": metrics,
+        "metrics": sol_qpso_data["metrics"],
+        "routes": sol_qpso_data["routes"],
+        "solutions": solutions,
         "depot": depot,
         "customers": customer_stops,
         "intersections": intersections,
         "edges": edges_list,
-        "routes": routes_data,
         "bounds": {
             "min_x": float(np.min(coords[:, 0])),
             "max_x": float(np.max(coords[:, 0])),
@@ -231,6 +321,53 @@ def _build_simulation_state(
             "max_y": float(np.max(coords[:, 1]))
         }
     }
+
+
+@app.route("/api/reference", methods=["GET"])
+def get_reference():
+    """Serves Reference.md parsed into chapters and full raw markdown for the Reference Book view."""
+    import re
+    ref_file = root_dir / "Docs" / "Reference.md"
+    if not ref_file.exists():
+        return jsonify({"success": False, "error": "Reference document not found"}), 404
+
+    text = ref_file.read_text(encoding="utf-8")
+    lines = text.split("\n")
+    chapters = []
+    current_ch = None
+    current_lines = []
+
+    for line in lines:
+        match = re.match(r"^##\s+(.+)$", line)
+        if match:
+            if current_ch:
+                current_ch["content"] = "\n".join(current_lines).strip()
+                chapters.append(current_ch)
+            title = match.group(1).strip()
+            ch_id = re.sub(r"[^a-zA-Z0-9]+", "-", title.lower()).strip("-")
+            current_ch = {
+                "id": ch_id,
+                "title": title,
+                "content": ""
+            }
+            current_lines = []
+        else:
+            if current_ch is not None:
+                current_lines.append(line)
+
+    if current_ch:
+        current_ch["content"] = "\n".join(current_lines).strip()
+        chapters.append(current_ch)
+
+    return jsonify({
+        "success": True,
+        "data": {
+            "title": "Quantum-Inspired Intelligent Traffic Route Optimization",
+            "subtitle": "A Complete Mathematical Reference",
+            "raw_markdown": text,
+            "chapters": chapters
+        }
+    })
 
 
 @app.route("/api/health", methods=["GET"])

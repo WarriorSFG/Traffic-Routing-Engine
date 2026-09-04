@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import NetworkMap from './components/NetworkMap';
-import MetricsBar from './components/MetricsBar';
-import TourSchedule from './components/TourSchedule';
-import BenchmarkView from './components/BenchmarkView';
+import Navbar from './components/Navbar';
+import DispatchStudio from './components/DispatchStudio';
+import ComparisonStudio from './components/ComparisonStudio';
 import RerouteView from './components/RerouteView';
+import BenchmarkView from './components/BenchmarkView';
+import ReferenceBookView from './components/ReferenceBookView';
 
 export default function App() {
-  // Navigation
-  const [activeTab, setActiveTab] = useState('map'); // 'map' | 'benchmark' | 'reroute'
+  // Page Navigation: 'dispatch' | 'compare' | 'reroute' | 'benchmark' | 'reference'
+  const [activePage, setActivePage] = useState('dispatch');
 
   // Sidebar Controls State
   const [preset, setPreset] = useState('Rush-Hour Bottleneck');
@@ -23,8 +24,9 @@ export default function App() {
   const [simulationData, setSimulationData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
 
-  // Execute Simulation API
+  // Execute Simulation API (solves GNN, PSO, and QPSO together in C++)
   const runSimulation = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -62,267 +64,261 @@ export default function App() {
   }, [runSimulation]);
 
   const metrics = simulationData?.metrics;
+  const isBookPage = activePage === 'reference';
 
   return (
-    <div className="app-container">
-      {/* 1. Left Control Panel Sidebar */}
-      <aside className="app-sidebar">
-        <div className="sidebar-brand">
-          <div className="sidebar-brand-icon">🚗</div>
-          <div>
-            <div className="sidebar-brand-title">Traffic Routing</div>
-            <div className="sidebar-brand-subtitle">QPSO Optimizer</div>
-          </div>
-        </div>
+    <div className="website-root">
+      {/* 1. Global Navigation Bar */}
+      <Navbar
+        activePage={activePage}
+        setActivePage={setActivePage}
+        isOnline={!error}
+      />
 
-        <button
-          className="btn btn-primary"
-          style={{ width: '100%' }}
-          onClick={runSimulation}
-          disabled={loading}
-        >
-          {loading ? (
-            <>
-              <span className="spinner" /> Optimizing...
-            </>
-          ) : (
-            '🚀 Optimize Routes (QPSO)'
+      {/* 2. Main Body Layout */}
+      <div className={`app-container ${isBookPage ? 'fullwidth-layout' : ''}`}>
+        {/* Left Sidebar (Only visible on simulation / workbench pages) */}
+        {!isBookPage && (
+          <aside className={`app-sidebar ${sidebarOpen ? 'open' : 'collapsed'}`}>
+            <div className="sidebar-collapse-toggle">
+              <button
+                className="btn-sidebar-toggle"
+                onClick={() => setSidebarOpen(!sidebarOpen)}
+                title={sidebarOpen ? 'Collapse Sidebar' : 'Expand Sidebar'}
+              >
+                {sidebarOpen ? '◀ Controls' : '▶'}
+              </button>
+            </div>
+
+            {sidebarOpen && (
+              <>
+                <div className="sidebar-header-box">
+                  <div className="sidebar-section-title">⚙️ PARAMETER WORKBENCH</div>
+                  <p className="sidebar-section-sub">
+                    Tune graph topology, vehicle capacity, and quantum hyperparameters.
+                  </p>
+                </div>
+
+                <button
+                  className="btn btn-primary btn-reoptimize"
+                  onClick={runSimulation}
+                  disabled={loading}
+                >
+                  {loading ? (
+                    <>
+                      <span className="spinner" /> Optimizing All Solvers...
+                    </>
+                  ) : (
+                    '🚀 Re-Optimize Fleet (All Solvers)'
+                  )}
+                </button>
+
+                {/* Traffic Simulation Settings */}
+                <div className="sidebar-section">
+                  <span className="sidebar-section-title">🚦 Simulation & Traffic</span>
+
+                  <div className="control-group">
+                    <label htmlFor="preset-select" className="control-label">Congestion Preset</label>
+                    <select
+                      id="preset-select"
+                      className="control-select"
+                      value={preset}
+                      onChange={(e) => setPreset(e.target.value)}
+                    >
+                      <option value="Rush-Hour Bottleneck">Rush-Hour Bottleneck (Clustered)</option>
+                      <option value="Incident Disruption">Incident Disruption (Roadblock)</option>
+                      <option value="Uniform Flow">Uniform Flow (Baseline Noise)</option>
+                    </select>
+                  </div>
+
+                  <div className="control-group">
+                    <div className="control-label-row">
+                      <label htmlFor="clock-slider" className="control-label">Simulation Clock</label>
+                      <span className="control-value">{simClock.toFixed(1)}:00 hrs</span>
+                    </div>
+                    <input
+                      id="clock-slider"
+                      type="range"
+                      className="slider"
+                      min="6.0"
+                      max="18.0"
+                      step="0.5"
+                      value={simClock}
+                      onChange={(e) => setSimClock(parseFloat(e.target.value))}
+                    />
+                  </div>
+                </div>
+
+                {/* VRP Fleet Settings */}
+                <div className="sidebar-section">
+                  <span className="sidebar-section-title">📦 Fleet & Demands</span>
+
+                  <div className="control-group">
+                    <div className="control-label-row">
+                      <label htmlFor="cust-slider" className="control-label">Customer Stops</label>
+                      <span className="control-value">{numCustomers}</span>
+                    </div>
+                    <input
+                      id="cust-slider"
+                      type="range"
+                      className="slider"
+                      min="5"
+                      max="40"
+                      step="1"
+                      value={numCustomers}
+                      onChange={(e) => setNumCustomers(parseInt(e.target.value, 10))}
+                    />
+                  </div>
+
+                  <div className="control-group">
+                    <div className="control-label-row">
+                      <label htmlFor="veh-slider" className="control-label">Fleet Vehicles</label>
+                      <span className="control-value">{numVehicles}</span>
+                    </div>
+                    <input
+                      id="veh-slider"
+                      type="range"
+                      className="slider"
+                      min="1"
+                      max="8"
+                      step="1"
+                      value={numVehicles}
+                      onChange={(e) => setNumVehicles(parseInt(e.target.value, 10))}
+                    />
+                  </div>
+
+                  <div className="control-group">
+                    <div className="control-label-row">
+                      <label htmlFor="cap-slider" className="control-label">Vehicle Capacity (Q)</label>
+                      <span className="control-value">{vehicleCap} kg</span>
+                    </div>
+                    <input
+                      id="cap-slider"
+                      type="range"
+                      className="slider"
+                      min="50.0"
+                      max="300.0"
+                      step="10.0"
+                      value={vehicleCap}
+                      onChange={(e) => setVehicleCap(parseFloat(e.target.value))}
+                    />
+                  </div>
+                </div>
+
+                {/* Metaheuristic Hyperparameters */}
+                <div className="sidebar-section">
+                  <span className="sidebar-section-title">⚛️ QPSO Hyperparameters</span>
+
+                  <div className="control-group">
+                    <div className="control-label-row">
+                      <label htmlFor="swarm-slider" className="control-label">Swarm Size (M)</label>
+                      <span className="control-value">{swarmSize}</span>
+                    </div>
+                    <input
+                      id="swarm-slider"
+                      type="range"
+                      className="slider"
+                      min="10"
+                      max="100"
+                      step="5"
+                      value={swarmSize}
+                      onChange={(e) => setSwarmSize(parseInt(e.target.value, 10))}
+                    />
+                  </div>
+
+                  <div className="control-group">
+                    <div className="control-label-row">
+                      <label htmlFor="iter-slider" className="control-label">Max Iterations (T)</label>
+                      <span className="control-value">{maxIter}</span>
+                    </div>
+                    <input
+                      id="iter-slider"
+                      type="range"
+                      className="slider"
+                      min="20"
+                      max="300"
+                      step="10"
+                      value={maxIter}
+                      onChange={(e) => setMaxIter(parseInt(e.target.value, 10))}
+                    />
+                  </div>
+
+                  <div className="control-group">
+                    <div className="control-label-row">
+                      <label htmlFor="seed-slider" className="control-label">RNG Seed</label>
+                      <span className="control-value">{seed}</span>
+                    </div>
+                    <input
+                      id="seed-slider"
+                      type="range"
+                      className="slider"
+                      min="1"
+                      max="100"
+                      step="1"
+                      value={seed}
+                      onChange={(e) => setSeed(parseInt(e.target.value, 10))}
+                    />
+                  </div>
+                </div>
+              </>
+            )}
+          </aside>
+        )}
+
+        {/* 3. Main Workspace Area */}
+        <main className="app-main">
+          {/* Global Error Banner */}
+          {error && (
+            <div className="error-banner">
+              ⚠️ Connection or Solver Error: {error}
+            </div>
           )}
-        </button>
 
-        {/* Traffic Simulation Settings */}
-        <div className="sidebar-section">
-          <span className="sidebar-section-title">🚦 Simulation Clock & Traffic</span>
-
-          <div className="control-group">
-            <label htmlFor="preset-select" className="control-label">Congestion Preset</label>
-            <select
-              id="preset-select"
-              className="control-select"
-              value={preset}
-              onChange={(e) => setPreset(e.target.value)}
-            >
-              <option value="Rush-Hour Bottleneck">Rush-Hour Bottleneck</option>
-              <option value="Incident Disruption">Incident Disruption</option>
-              <option value="Uniform Flow">Uniform Flow</option>
-            </select>
-          </div>
-
-          <div className="control-group">
-            <label htmlFor="sim-clock-slider" className="control-label">
-              <span>Simulation Clock</span>
-              <span className="control-value">{simClock.toFixed(2)} hrs</span>
-            </label>
-            <input
-              id="sim-clock-slider"
-              type="range"
-              min="6.0"
-              max="12.0"
-              step="0.25"
-              value={simClock}
-              onChange={(e) => setSimClock(parseFloat(e.target.value))}
-              className="control-range"
+          {/* Page 1: Dispatch Studio */}
+          {activePage === 'dispatch' && (
+            <DispatchStudio
+              simulationData={simulationData}
+              loading={loading}
+              error={error}
+              onRunSimulation={runSimulation}
+              simClock={simClock}
+              setSimClock={setSimClock}
+              preset={preset}
+              setPreset={setPreset}
             />
-          </div>
-        </div>
+          )}
 
-        {/* Network & Fleet Settings */}
-        <div className="sidebar-section">
-          <span className="sidebar-section-title">📦 Network & Fleet</span>
-
-          <div className="control-group">
-            <label htmlFor="customers-slider" className="control-label">
-              <span>Customer Stops</span>
-              <span className="control-value">{numCustomers}</span>
-            </label>
-            <input
-              id="customers-slider"
-              type="range"
-              min="5"
-              max="35"
-              step="1"
-              value={numCustomers}
-              onChange={(e) => setNumCustomers(parseInt(e.target.value, 10))}
-              className="control-range"
+          {/* Page 2: Comparison Studio */}
+          {activePage === 'compare' && (
+            <ComparisonStudio
+              simulationData={simulationData}
+              onRunSim={runSimulation}
+              loading={loading}
             />
-          </div>
+          )}
 
-          <div className="control-group">
-            <label htmlFor="vehicles-slider" className="control-label">
-              <span>Fleet Vehicles</span>
-              <span className="control-value">{numVehicles}</span>
-            </label>
-            <input
-              id="vehicles-slider"
-              type="range"
-              min="2"
-              max="6"
-              step="1"
-              value={numVehicles}
-              onChange={(e) => setNumVehicles(parseInt(e.target.value, 10))}
-              className="control-range"
+          {/* Page 3: Incident & Live Reroute */}
+          {activePage === 'reroute' && (
+            <RerouteView networkData={simulationData} />
+          )}
+
+          {/* Page 4: Benchmark Suite */}
+          {activePage === 'benchmark' && (
+            <BenchmarkView
+              params={{
+                swarm_size: swarmSize,
+                max_iter: maxIter,
+                seed
+              }}
             />
-          </div>
+          )}
 
-          <div className="control-group">
-            <label htmlFor="cap-input" className="control-label">Vehicle Capacity (parcels)</label>
-            <input
-              id="cap-input"
-              type="number"
-              min="50"
-              max="250"
-              step="10"
-              value={vehicleCap}
-              onChange={(e) => setVehicleCap(parseFloat(e.target.value) || 100)}
-              className="control-input"
-            />
-          </div>
-        </div>
-
-        {/* Optimization Hyperparameters */}
-        <div className="sidebar-section">
-          <span className="sidebar-section-title">⚙️ QPSO Swarm Parameters</span>
-
-          <div className="control-group">
-            <label htmlFor="swarm-slider" className="control-label">
-              <span>Swarm Size (M)</span>
-              <span className="control-value">{swarmSize}</span>
-            </label>
-            <input
-              id="swarm-slider"
-              type="range"
-              min="10"
-              max="100"
-              step="10"
-              value={swarmSize}
-              onChange={(e) => setSwarmSize(parseInt(e.target.value, 10))}
-              className="control-range"
-            />
-          </div>
-
-          <div className="control-group">
-            <label htmlFor="max-iter-slider" className="control-label">
-              <span>Max Iterations (t_max)</span>
-              <span className="control-value">{maxIter}</span>
-            </label>
-            <input
-              id="max-iter-slider"
-              type="range"
-              min="20"
-              max="300"
-              step="20"
-              value={maxIter}
-              onChange={(e) => setMaxIter(parseInt(e.target.value, 10))}
-              className="control-range"
-            />
-          </div>
-
-          <div className="control-group">
-            <label htmlFor="seed-input" className="control-label">Random Seed</label>
-            <input
-              id="seed-input"
-              type="number"
-              value={seed}
-              onChange={(e) => setSeed(parseInt(e.target.value, 10) || 42)}
-              className="control-input"
-            />
-          </div>
-        </div>
-      </aside>
-
-      {/* 2. Main Content View */}
-      <main className="app-main">
-        {/* Header Banner */}
-        <header className="header-banner">
-          <div className="banner-title-row">
-            <div>
-              <h1 className="banner-title">🚗 Quantum-Inspired Traffic Route Optimization</h1>
-              <p className="banner-subtitle">
-                SIH 2026 Problem Statement 26137 — High-Performance C++ QPSO Engine vs. Classical Metaheuristics & Live Dynamic Re-Routing
-              </p>
-            </div>
-            <div className="banner-badges">
-              <span className="badge badge-primary">{preset}</span>
-              <span className="badge badge-success">Clock: {simClock.toFixed(2)}h</span>
-              {metrics && (
-                <span className="badge">
-                  {metrics.num_edges} Links | {metrics.num_customers} Stops
-                </span>
-              )}
-            </div>
-          </div>
-        </header>
-
-        {/* Navigation Tabs */}
-        <nav className="tabs-header">
-          <button
-            className={`tab-btn ${activeTab === 'map' ? 'active' : ''}`}
-            onClick={() => setActiveTab('map')}
-          >
-            🗺️ Network & Route Map
-          </button>
-          <button
-            className={`tab-btn ${activeTab === 'benchmark' ? 'active' : ''}`}
-            onClick={() => setActiveTab('benchmark')}
-          >
-            📊 Metaheuristic Benchmarking
-          </button>
-          <button
-            className={`tab-btn ${activeTab === 'reroute' ? 'active' : ''}`}
-            onClick={() => setActiveTab('reroute')}
-          >
-            ⚡ Live Dynamic Re-Routing Demo
-          </button>
-        </nav>
-
-        {/* Global Error Banner */}
-        {error && (
-          <div style={{
-            background: 'rgba(239, 68, 68, 0.15)',
-            border: '1px solid #ef4444',
-            padding: '12px 18px',
-            borderRadius: '8px',
-            color: '#fca5a5',
-            fontSize: '0.9rem'
-          }}>
-            ⚠️ Error: {error}
-          </div>
-        )}
-
-        {/* Tab 1: Network & Route Map */}
-        {activeTab === 'map' && simulationData && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-            <MetricsBar metrics={simulationData.metrics} />
-
-            <NetworkMap
-              data={simulationData}
-              title={`Network Topology & Multi-Vehicle Routes (${preset} at ${simClock.toFixed(2)} hrs)`}
-              height={580}
-            />
-
-            <TourSchedule
-              routes={simulationData.routes}
-              vehicleCap={vehicleCap}
-            />
-          </div>
-        )}
-
-        {/* Tab 2: Metaheuristic Benchmarking */}
-        {activeTab === 'benchmark' && (
-          <BenchmarkView
-            params={{
-              swarm_size: swarmSize,
-              max_iter: maxIter,
-              seed
-            }}
-          />
-        )}
-
-        {/* Tab 3: Live Dynamic Re-Routing Demo */}
-        {activeTab === 'reroute' && (
-          <RerouteView networkData={simulationData} />
-        )}
-      </main>
+          {/* Page 5: The Quantum Routing Handbook */}
+          {activePage === 'reference' && (
+            <ReferenceBookView />
+          )}
+        </main>
+      </div>
     </div>
   );
 }
