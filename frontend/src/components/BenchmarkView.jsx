@@ -227,26 +227,53 @@ export default function BenchmarkView({ params }) {
                         <strong>{row['Algorithm']}</strong>
                         {isQpso && <span className="badge badge-primary" style={{ marginLeft: 8, fontSize: '0.65rem' }}>LEADER</span>}
                       </td>
-                      <td>{typeof row['Best Cost'] === 'number' ? row['Best Cost'].toFixed(2) : row['Best Cost']}</td>
-                      <td>{typeof row['Mean Cost'] === 'number' ? row['Mean Cost'].toFixed(2) : row['Mean Cost']}</td>
-                      <td>{typeof row['Std Dev'] === 'number' ? row['Std Dev'].toFixed(2) : row['Std Dev']}</td>
-                      <td>{typeof row['Mean Time (hrs)'] === 'number' ? row['Mean Time (hrs)'].toFixed(2) : row['Mean Time (hrs)'] ?? '—'}</td>
-                      <td>{typeof row['Mean Dist (km)'] === 'number' ? row['Mean Dist (km)'].toFixed(1) : row['Mean Dist (km)'] ?? '—'}</td>
+                      <td>
+                        {typeof row['Best Cost'] === 'number'
+                          ? row['Best Cost'].toFixed(2)
+                          : (row['Best Cost'] ?? row['Best Fitness'] ?? '—')}
+                      </td>
+                      <td>
+                        {typeof row['Mean Cost'] === 'number'
+                          ? row['Mean Cost'].toFixed(2)
+                          : (row['Mean Cost'] ?? row['Mean Fitness'] ?? '—')}
+                      </td>
+                      <td>
+                        {typeof row['Std Dev'] === 'number'
+                          ? row['Std Dev'].toFixed(2)
+                          : (row['Std Dev'] ?? '—')}
+                      </td>
+                      <td>
+                        {typeof row['Mean Time (hrs)'] === 'number'
+                          ? row['Mean Time (hrs)'].toFixed(2)
+                          : (row['Mean Time (hrs)'] ?? row['Fleet Travel Time (h)'] ?? '—')}
+                      </td>
+                      <td>
+                        {typeof row['Mean Dist (km)'] === 'number'
+                          ? row['Mean Dist (km)'].toFixed(1)
+                          : (row['Mean Dist (km)'] ?? row['Fleet Distance (km)'] ?? '—')}
+                      </td>
                       <td>
                         <span style={{ fontFamily: 'JetBrains Mono', color: isQpso ? '#00d4ff' : 'inherit' }}>
-                          {typeof row['Mean Compute (ms)'] === 'number' ? row['Mean Compute (ms)'].toFixed(2) : row['Mean Compute (ms)']} ms
+                          {typeof row['Mean Compute (ms)'] === 'number'
+                            ? row['Mean Compute (ms)'].toFixed(2)
+                            : (row['Mean Compute (ms)'] ?? row['Wall-Clock Time (ms)'] ?? '—')} ms
                         </span>
                       </td>
                       <td>
-                        <span style={{ color: row['Relative Gap (%)'] === 0 ? '#10b981' : '#f59e0b', fontWeight: 600 }}>
-                          {typeof row['Relative Gap (%)'] === 'number' ? `${row['Relative Gap (%)'].toFixed(1)}%` : row['Relative Gap (%)']}
+                        <span style={{
+                          color: (row['Relative Gap (%)'] === 0 || row['Relative Gap (%)'] === '0.00%' || row['Optimality Gap (%)'] === '0.00%') ? '#10b981' : '#f59e0b',
+                          fontWeight: 600
+                        }}>
+                          {typeof row['Relative Gap (%)'] === 'number'
+                            ? `${row['Relative Gap (%)'].toFixed(1)}%`
+                            : (row['Relative Gap (%)'] ?? row['Optimality Gap (%)'] ?? '—')}
                         </span>
                       </td>
                       <td>
-                        {row['Feasibility Rate'] === '100.0%' || row['Feasibility Rate'] === 1.0 ? (
+                        {(row['Feasibility Rate'] === '100.0%' || row['Feasibility Rate (%)'] === '100.0%' || row['Feasibility Rate'] === 1.0) ? (
                           <span style={{ color: '#10b981' }}>✅ 100%</span>
                         ) : (
-                          <span style={{ color: '#f59e0b' }}>{row['Feasibility Rate']}</span>
+                          <span style={{ color: '#f59e0b' }}>{row['Feasibility Rate'] ?? row['Feasibility Rate (%)'] ?? '—'}</span>
                         )}
                       </td>
                     </tr>

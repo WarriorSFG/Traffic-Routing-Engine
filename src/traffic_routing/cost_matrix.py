@@ -53,12 +53,11 @@ class CostMatrixCalculator:
         paths: Dict[Tuple[int, int], List[int]] = {}
 
         for p_idx, src_node in enumerate(self.stops):
-            try:
-                # Dijkstra computing shortest paths based on dynamic weight (travel time)
+            if src_node in dynamic_graph:
                 lengths, path_dict = nx.single_source_dijkstra(
                     dynamic_graph, source=src_node, weight="weight"
                 )
-            except nx.NetworkXNoPath:
+            else:
                 lengths, path_dict = {}, {}
 
             for q_idx, dst_node in enumerate(self.stops):

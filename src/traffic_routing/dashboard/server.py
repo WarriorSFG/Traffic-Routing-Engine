@@ -348,8 +348,18 @@ def reroute():
     try:
         # Determine disrupted edge from initial route
         first_route = sol_res.solution.routes[0] if sol_res.solution.routes else [0, 1]
-        next_stop = first_route[1] if len(first_route) > 1 else cost_matrix.stops[1]
-        disrupted_edge = (network.depot_id, cost_matrix.stops[next_stop])
+        next_stop = first_route[1] if len(first_route) > 1 else 1
+        path_nodes = cost_matrix.get_path_nodes(first_route[0], next_stop) if hasattr(cost_matrix, "get_path_nodes") else []
+        if len(path_nodes) >= 2:
+            u, v = path_nodes[0], path_nodes[1]
+            disrupted_edge = (min(u, v), max(u, v))
+        else:
+            depot_edges = [
+                (min(u, v), max(u, v))
+                for (u, v) in network.edges.keys()
+                if u == network.depot_id or v == network.depot_id
+            ]
+            disrupted_edge = depot_edges[0] if depot_edges else list(network.edges.keys())[0]
 
         # Set up incident congestion engine
         inc_config = CongestionConfig(
@@ -425,6 +435,10 @@ def reroute():
                 "y0": float(coords[u, 1]),
                 "x1": float(coords[v, 0]),
                 "y1": float(coords[v, 1]),
+                "base_time_min": float(edge.base_time * 60),
+                "distance_km": float(edge.distance),
+                "speed_limit": float(edge.speed_limit),
+                "is_arterial": bool(edge.is_arterial),
                 "alpha": round(alpha, 2),
                 "is_closed": is_closed
             })

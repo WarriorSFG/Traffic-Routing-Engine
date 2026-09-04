@@ -29,6 +29,7 @@ class DynamicCongestionEngine:
     def __init__(self, road_network: RoadNetwork, config: CongestionConfig):
         self.network = road_network
         self.config = config
+        self._rng = np.random.default_rng(config.seed if hasattr(config, "seed") and config.seed is not None else 42)
         self._hotspots: List[int] = self._identify_hotspots(config.rush_hour_hotspot_count)
         self._hotspot_distances: Dict[int, Dict[int, float]] = self._precompute_hotspot_distances()
 
@@ -100,7 +101,7 @@ class DynamicCongestionEngine:
             # 1. Base multiplier
             if preset == TrafficPreset.UNIFORM:
                 # Preset 1: Uniform Flow (§3.2)
-                eps = np.random.uniform(0.0, self.config.uniform_eps_max)
+                eps = float(self._rng.uniform(0.0, self.config.uniform_eps_max))
                 alpha = 1.0 + eps
 
             elif preset == TrafficPreset.RUSH_HOUR:
@@ -127,7 +128,7 @@ class DynamicCongestionEngine:
                         alpha = self.config.incident_alpha
                 else:
                     # Light background noise outside incident
-                    alpha = 1.0 + np.random.uniform(0.0, self.config.uniform_eps_max)
+                    alpha = 1.0 + float(self._rng.uniform(0.0, self.config.uniform_eps_max))
             else:
                 alpha = 1.0
 

@@ -30,6 +30,7 @@ class NetworkConfig:
 class CongestionConfig:
     """Dynamic congestion engine configuration (Chapter 3)."""
     preset: TrafficPreset = TrafficPreset.UNIFORM
+    seed: Optional[int] = 42
     # Preset 1: Uniform flow
     uniform_eps_max: float = 0.1
     # Preset 2: Rush-Hour Bottleneck

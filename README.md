@@ -1,13 +1,14 @@
 # Quantum-Inspired Intelligent Traffic Route Optimization (QPSO)
 
 [![Python 3.13](https://img.shields.io/badge/python-3.13-blue.svg)](https://www.python.org/)
+[![React 19](https://img.shields.io/badge/React-19-cyan.svg)](https://react.dev/)
 [![C++20](https://img.shields.io/badge/C%2B%2B-20-green.svg)](https://en.wikipedia.org/wiki/C%2B%2B20)
 [![OpenMP](https://img.shields.io/badge/OpenMP-Multi--Core-orange.svg)](https://www.openmp.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 An industrial-grade, high-performance metaheuristic optimization framework for dynamic urban vehicle routing and traffic congestion mitigation, designed for **SIH 2026 Problem Statement 26137**.
 
-The platform couples a **high-speed C++20 core solver** accelerated by **OpenMP multi-threading** and exposed via **pybind11** with a synthetic planar road network generator, time-varying dynamic congestion simulation, and an interactive **Streamlit & Plotly** visualization dashboard.
+The platform couples a **high-speed C++20 core solver** accelerated by **OpenMP multi-threading** and exposed via **pybind11** with a synthetic planar road network generator, time-varying dynamic congestion simulation, and an interactive **React.js & Python REST** visualization dashboard.
 
 ---
 
@@ -28,7 +29,7 @@ Traffic-Routing-Engine/
 │   │       ├── bindings.cpp          # Pybind11 Python C-extension definitions
 │   │       └── main.cpp              # Standalone native C++ CLI (traffic_solver.exe)
 │   │
-│   └── traffic_routing/              # Python Orchestration & Web Dashboard
+│   └── traffic_routing/              # Python Orchestration & REST API
 │       ├── config.py                 # Dataclasses & hyperparameter presets
 │       ├── graph_generator.py        # Delaunay triangulation planar topology (Ch. 2)
 │       ├── congestion_engine.py      # Dynamic traffic engine & spatio-temporal decay (Ch. 3)
@@ -40,10 +41,18 @@ Traffic-Routing-Engine/
 │       ├── benchmark.py              # Statistical comparative benchmark engine (Ch. 13 & 14)
 │       ├── solvers/                  # Unified solver bridge & C++ pybind11 integration
 │       └── dashboard/
-│           └── app.py                # Streamlit & Plotly interactive UI (Phase 5)
-├── tests/                            # Comprehensive Pytest test suite (15 unit/integration tests)
+│           └── server.py             # Flask REST API & static web host
+├── frontend/                         # Modern React.js Dashboard (Vite + Pure Vanilla CSS)
+│   ├── src/
+│   │   ├── components/               # NetworkMap, MetricsBar, TourSchedule, BenchmarkView, RerouteView
+│   │   ├── App.jsx                   # Master dashboard layout & reactive state
+│   │   └── index.css                 # Dark glassmorphism design system & styles
+│   ├── package.json
+│   └── vite.config.js
+├── tests/                            # Comprehensive Pytest test suite (19 unit/integration tests)
 ├── scripts/
 │   ├── build_cpp.py                  # Automated C++ compiler & Pybind11 builder
+│   ├── run_web.py                    # Web dashboard launcher
 │   ├── run_benchmark.py              # Command-line benchmarking script
 │   └── run_demo.py                   # End-to-end demonstration runner
 ├── traffic_solver.exe                # Native compiled C++ standalone binary
@@ -99,6 +108,7 @@ Grounded in delta-potential well wave mechanics:
 
 ### 1. Prerequisites
 - Python 3.10+
+- Node.js 18+ (for frontend development)
 - G++ (with C++20 and OpenMP support, e.g. MSYS2 UCRT64 on Windows)
 
 ### 2. Install Python Dependencies
@@ -118,23 +128,39 @@ This builds:
 ```bash
 python -m pytest -v tests/
 ```
-All 15 unit and integration tests will execute and pass in ~1.2s.
+All 19 unit and integration tests will execute and pass in ~1.2s.
 
 ---
 
 ## Running the Applications
 
-### 1. Interactive Web Dashboard (Streamlit)
-Launch the modern visualization UI:
+### 1. Interactive Web Dashboard (React.js + Python API)
+
+#### Option A: Single Command (Production Mode)
 ```bash
-streamlit run src/traffic_routing/dashboard/app.py
+python scripts/run_web.py --port 5000
 ```
-**Features:**
-- **Dynamic Road Network Map:** Planar graph with colored road links dynamically updated by congestion levels (Green: free flow, Amber: moderate, Red: heavy).
-- **Route Overlay:** Colored vehicle tour traces with sequence markers.
-- **Traffic Controls:** Sliders for simulation time, traffic presets (Uniform, Rush Hour, Incident), and accident injectors.
-- **Side-by-Side Convergence Curves:** Cost vs. Iteration comparing QPSO against Classical PSO.
-- **Live Dynamic Re-Routing Demo:** Visualizes fleet instantly adapting and bypassing blocked roads upon accident occurrences.
+Open **[http://127.0.0.1:5000](http://127.0.0.1:5000)** in your browser. The Python server directly serves both the REST API and the built React frontend.
+
+#### Option B: Hot-Reloading Development Mode
+1. Start the API backend:
+   ```bash
+   python scripts/run_web.py --port 5000
+   ```
+2. In a second terminal, launch Vite dev server:
+   ```bash
+   cd frontend
+   npm run dev
+   ```
+   Open **[http://localhost:5173](http://localhost:5173)** in your browser.
+
+**Dashboard Features:**
+- **Interactive Road Network Map:** Vector SVG graph with zoom, pan, hover tooltips, and real-time congestion heat styling (Green: free flow, Amber: moderate, Red: severe, Dashed Pink: closed/blocked).
+- **Vehicle Tour Overlays:** Glowing multi-vehicle tour traces with stop sequence indices.
+- **KPI Metrics Bar:** Real-time metrics for Total Travel Time, Total Distance, Fleet Utilization, C++ Compute Time (ms), and Feasibility.
+- **Detailed Vehicle Tour Schedules:** Expandable vehicle schedules with load capacity progress bars and delivery timings.
+- **Systematic Benchmarking:** Multi-trial stochastic comparison comparing QPSO vs Classical PSO vs GNN with a comparative Scorecard table and interactive SVG Convergence Curves.
+- **Live Dynamic Re-Routing Demo:** Simulates sudden road disruptions mid-transit with side-by-side comparison of prior blocked route vs warm-started QPSO detour bypass in sub-second compute time.
 
 ### 2. End-to-End CLI Demonstration
 ```bash
@@ -150,4 +176,4 @@ python scripts/run_benchmark.py --customers 15 --vehicles 4 --capacity 100 --swa
 ```bash
 .\traffic_solver.exe
 ```
-Runs the pure C++ multi-threaded engine across 28 hardware threads in under 40 milliseconds.
+Runs the pure C++ multi-threaded engine across hardware threads in under 40 milliseconds.

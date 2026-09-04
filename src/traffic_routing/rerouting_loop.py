@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Set, Tuple
 import numpy as np
 
-from .config import PenaltyConfig, SolverConfig
+from .config import PenaltyConfig, SolverConfig, VRPConfig
 from .congestion_engine import DynamicCongestionEngine
 from .cost_matrix import CostMatrix, CostMatrixCalculator
 from .graph_generator import RoadNetwork
@@ -49,6 +49,7 @@ class DynamicRerouter:
         initial_problem: VRPProblem,
         penalty_config: PenaltyConfig,
         solver_config: Optional[SolverConfig] = None,
+        vrp_config: Optional[VRPConfig] = None,
         refresh_threshold: float = 0.05
     ):
         self.network = network
@@ -56,6 +57,7 @@ class DynamicRerouter:
         self.matrix_calculator = CostMatrixCalculator(network)
         self.penalty_config = penalty_config
         self.solver_config = solver_config or SolverConfig()
+        self.vrp_config = vrp_config
         self.refresh_threshold = refresh_threshold
 
         self.current_time = 6.0  # e.g., 6:00 AM start
@@ -140,19 +142,22 @@ class DynamicRerouter:
 
         # If only a couple of stops remain, preserve existing order or optimize
         # Build sub-problem with new cost matrix
-        sub_problem = create_vrp_problem(
-            cost_matrix=new_cost_matrix,
-            config=self.current_problem.cost_matrix and self.current_problem.stops_info and None or self.current_problem,
-            seed=42
-        ) if hasattr(self.current_problem, "config") else self.current_problem
+        sub_problem = VRPProblem(
+            num_customers=self.current_problem.num_customers,
+            num_vehicles=self.current_problem.num_vehicles,
+            capacity=self.current_problem.capacity,
+            stops_info=self.current_problem.stops_info,
+            cost_matrix=new_cost_matrix
+        )
 
         # Run QPSO solver on updated matrix
         solver = QPSOSolver(
-            self.current_problem,
+            sub_problem,
             self.penalty_config,
             self.solver_config
         )
         res = solver.solve()
+        self.current_problem = sub_problem
 
         old_routes = [list(r) for r in self.current_routes]
         new_routes = res.solution.routes

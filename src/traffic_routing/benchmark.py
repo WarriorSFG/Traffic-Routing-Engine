@@ -136,7 +136,16 @@ class BenchmarkEngine:
                 "Fleet Distance (km)": f"{mean_dist:.2f}",
                 "Wall-Clock Time (ms)": f"{mean_comp:.2f}",
                 "Optimality Gap (%)": f"{gap_pct:.2f}%",
-                "Feasibility Rate (%)": f"{feas_rate:.1f}%"
+                "Feasibility Rate (%)": f"{feas_rate:.1f}%",
+                # Numeric & frontend-compatible aliases
+                "Best Cost": round(best_fit, 2),
+                "Mean Cost": round(mean_fit, 2),
+                "Std Dev": round(std_fit, 2),
+                "Mean Time (hrs)": round(mean_time, 2),
+                "Mean Dist (km)": round(mean_dist, 2),
+                "Mean Compute (ms)": round(mean_comp, 2),
+                "Relative Gap (%)": round(gap_pct, 2),
+                "Feasibility Rate": f"{feas_rate:.1f}%"
             })
 
         scorecard_df = pd.DataFrame(rows)
@@ -146,8 +155,9 @@ class BenchmarkEngine:
         for name, run_list in results.items():
             best_run = min(run_list, key=lambda r: r.best_fitness)
             history_dict = {cp.iteration: cp.best_fitness for cp in best_run.history}
+            fallback = float(best_run.best_fitness)
             conv_data[name] = [
-                history_dict.get(it, history_dict.get(0, 0.0))
+                history_dict.get(it, fallback)
                 for it in range(max_iterations + 1)
             ]
         convergence_df = pd.DataFrame(conv_data)

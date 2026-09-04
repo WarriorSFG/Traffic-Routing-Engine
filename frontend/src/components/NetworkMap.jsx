@@ -16,7 +16,7 @@ export default function NetworkMap({
   const { edges = [], routes = [], customers = [], intersections = [], depot = null, bounds = null } = data || {};
 
   // Compute bounding box and aspect-ratio scaling
-  const { minX, maxX, minY, maxY, scaleX, scaleY, pad } = useMemo(() => {
+  const { minX, minY, scaleX, scaleY, pad } = useMemo(() => {
     if (!bounds) {
       return { minX: 0, maxX: 100, minY: 0, maxY: 100, scaleX: 1, scaleY: 1, pad: 40 };
     }
@@ -342,7 +342,7 @@ export default function NetworkMap({
                   Road Link ({hoveredElement.data.u} ⇄ {hoveredElement.data.v})
                 </div>
                 <div>Congestion: <strong style={{ color: getRoadColor(hoveredElement.data) }}>{hoveredElement.data.alpha}x</strong></div>
-                <div>Base Time: {(hoveredElement.data.base_time_min).toFixed(1)} mins</div>
+                <div>Base Time: {typeof hoveredElement.data.base_time_min === 'number' ? hoveredElement.data.base_time_min.toFixed(1) : '—'} mins</div>
                 <div>Distance: {hoveredElement.data.distance_km?.toFixed(1) || '—'} km</div>
                 {hoveredElement.data.is_closed && (
                   <div style={{ color: '#ff0055', fontWeight: 700, marginTop: 4 }}>🚫 ROADWAY BLOCKED</div>
