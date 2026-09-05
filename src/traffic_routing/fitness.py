@@ -22,7 +22,7 @@ class FitnessEvaluator:
             scale = 10.0 * max_c * problem.num_stops
             self.lambda_cap = scale * 10.0
             self.lambda_route = scale * 500.0
-            self.lambda_tw = scale
+            self.lambda_tw = 1.0
         else:
             self.lambda_cap = penalty_config.lambda_capacity
             self.lambda_route = penalty_config.lambda_route

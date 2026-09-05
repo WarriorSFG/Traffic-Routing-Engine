@@ -57,39 +57,6 @@ def _get_preset(preset_str: str) -> TrafficPreset:
     return preset_map.get(preset_str, TrafficPreset.RUSH_HOUR)
 
 
-def _build_simulation_state(
-    preset_str: str = "Rush-Hour Bottleneck",
-    sim_clock: float = 8.0,
-    num_customers: int = 15,
-    num_vehicles: int = 4,
-    vehicle_cap: float = 100.0,
-    swarm_size: int = 40,
-    max_iter: int = 120,
-    seed: int = 42
-) -> Dict[str, Any]:
-    active_preset = _get_preset(preset_str)
-    n_nodes = num_customers + 15
-    net_config = NetworkConfig(num_nodes=n_nodes, num_customers=num_customers, seed=seed)
-    network = generate_road_network(net_config)
-    coords = network.coordinates
-
-    congestion_config = CongestionConfig(preset=active_preset)
-    if active_preset == TrafficPreset.INCIDENT:
-        congestion_config.incident_t_start = 7.5
-        congestion_config.incident_t_end = 9.5
-        congestion_config.incident_alpha = 8.0
-
-    congestion_engine = DynamicCongestionEngine(network, congestion_config)
-    congestion_state = congestion_engine.evaluate(t=sim_clock)
-    dynamic_graph = congestion_engine.create_weighted_graph(congestion_state)
-
-    matrix_calc = CostMatrixCalculator(network)
-    cost_matrix = matrix_calc.compute(dynamic_graph, sim_time=sim_clock)
-
-    vrp_config = VRPConfig(vehicle_capacity=vehicle_cap, num_vehicles=num_vehicles)
-    problem = create_vrp_problem(cost_matrix, vrp_config, seed=seed)
-    penalty_config = PenaltyConfig()
-
 def _format_solver_solution(
     sol_res,
     cost_matrix,
@@ -113,8 +80,10 @@ def _format_solver_solution(
                 p, q = route[i], route[i + 1]
                 path_nodes = cost_matrix.get_path_nodes(p, q)
                 for node in path_nodes:
-                    route_node_ids.append(int(node))
-                    route_coords.append([float(coords[node, 0]), float(coords[node, 1])])
+                    node_int = int(node)
+                    if not route_node_ids or node_int != route_node_ids[-1]:
+                        route_node_ids.append(node_int)
+                        route_coords.append([float(coords[node_int, 0]), float(coords[node_int, 1])])
 
             r_eval = sol_res.solution.route_evaluations[k] if k < len(sol_res.solution.route_evaluations) else None
             is_r_feasible = (r_eval.capacity_violation <= 1e-6 and r_eval.time_window_penalty <= 1e-6) if r_eval else True
@@ -134,18 +103,28 @@ def _format_solver_solution(
                 "is_feasible": is_r_feasible
             })
 
+    num_routes = len(sol_res.solution.routes) if sol_res.solution and sol_res.solution.routes else 0
+    cap_viol = float(sol_res.solution.total_capacity_violation) if hasattr(sol_res.solution, "total_capacity_violation") else 0.0
+    tw_viol = float(sol_res.solution.total_tw_penalty) if hasattr(sol_res.solution, "total_tw_penalty") else 0.0
+    is_sol_feasible = bool(
+        sol_res.solution.is_feasible
+        and num_routes <= int(num_vehicles)
+        and cap_viol <= 1e-6
+        and tw_viol <= 1e-6
+    )
+
     metrics = {
         "algorithm": algo_name,
         "total_time": round(float(sol_res.solution.total_time), 2),
         "total_distance": round(float(sol_res.solution.total_distance), 1),
-        "vehicles_utilized": len(sol_res.solution.routes),
+        "vehicles_utilized": num_routes,
         "total_vehicles": int(num_vehicles),
         "vehicle_capacity": float(vehicle_cap),
         "compute_time_ms": round(float(sol_res.compute_time_ms), 2),
-        "is_feasible": bool(sol_res.solution.is_feasible),
+        "is_feasible": is_sol_feasible,
         "fitness": round(float(sol_res.solution.penalized_fitness), 3),
-        "total_capacity_violation": round(float(sol_res.solution.total_capacity_violation), 2) if hasattr(sol_res.solution, "total_capacity_violation") else 0.0,
-        "total_tw_penalty": round(float(sol_res.solution.total_tw_penalty), 2) if hasattr(sol_res.solution, "total_tw_penalty") else 0.0,
+        "total_capacity_violation": round(cap_viol, 2),
+        "total_tw_penalty": round(tw_viol, 2),
         "num_edges": int(network.num_edges),
         "num_nodes": int(network.num_nodes),
         "num_customers": int(problem.num_customers),
@@ -498,11 +477,11 @@ def reroute():
             ]
             disrupted_edge = depot_edges[0] if depot_edges else list(network.edges.keys())[0]
 
-        # Set up incident congestion engine
+        # Set up incident congestion engine (Preset 3: Severe Slowdown §3.4)
         inc_config = CongestionConfig(
             preset=TrafficPreset.INCIDENT,
             incident_alpha=12.0,
-            incident_hard_closure=True,
+            incident_hard_closure=False,
             incident_t_start=8.0,
             incident_t_end=9.5,
             incident_edges=[disrupted_edge]
@@ -515,7 +494,15 @@ def reroute():
 
         inc_problem = create_vrp_problem(inc_cost_matrix, vrp_config, seed=params["seed"])
 
-        # Warm-started QPSO solver
+        # Extract continuous warm-start keys from prior solution (§10.2, §12.2)
+        warm_keys = [0.5] * inc_problem.num_customers
+        ordered_customers = [s for r in sol_res.solution.routes for s in r if s != 0]
+        for rank, cust in enumerate(ordered_customers):
+            cust_idx = cust - 1
+            if 0 <= cust_idx < inc_problem.num_customers:
+                warm_keys[cust_idx] = float(rank) / max(1, inc_problem.num_customers)
+
+        # Warm-started QPSO solver (§12.2)
         reroute_solver = QPSOSolver(
             inc_problem,
             penalty_config,
@@ -525,18 +512,27 @@ def reroute():
                 seed=params["seed"]
             )
         )
-        reroute_res = reroute_solver.solve()
+        reroute_res = reroute_solver.solve(warm_start=warm_keys)
+
+        # Evaluate what the prior routes would cost under the active incident
+        from traffic_routing.fitness import FitnessEvaluator
+        prior_evaluator = FitnessEvaluator(inc_problem, penalty_config)
+        prior_under_incident = prior_evaluator.evaluate_solution(sol_res.solution.routes)
 
         # Format Prior Routes
         palette = ["#38bdf8", "#a855f7", "#ec4899", "#f97316", "#eab308", "#06b6d4"]
         prior_routes = []
         for k, route in enumerate(sol_res.solution.routes):
             r_coords = []
+            r_node_ids = []
             for i in range(len(route) - 1):
                 p, q = route[i], route[i + 1]
                 path_nodes = cost_matrix.get_path_nodes(p, q)
                 for node in path_nodes:
-                    r_coords.append([float(coords[node, 0]), float(coords[node, 1])])
+                    node_int = int(node)
+                    if not r_node_ids or node_int != r_node_ids[-1]:
+                        r_node_ids.append(node_int)
+                        r_coords.append([float(coords[node_int, 0]), float(coords[node_int, 1])])
             prior_routes.append({
                 "vehicle_id": k + 1,
                 "color": palette[k % len(palette)],
@@ -548,11 +544,15 @@ def reroute():
         rerouted_routes = []
         for k, route in enumerate(reroute_res.solution.routes):
             r_coords = []
+            r_node_ids = []
             for i in range(len(route) - 1):
                 p, q = route[i], route[i + 1]
                 path_nodes = inc_cost_matrix.get_path_nodes(p, q)
                 for node in path_nodes:
-                    r_coords.append([float(coords[node, 0]), float(coords[node, 1])])
+                    node_int = int(node)
+                    if not r_node_ids or node_int != r_node_ids[-1]:
+                        r_node_ids.append(node_int)
+                        r_coords.append([float(coords[node_int, 0]), float(coords[node_int, 1])])
             rerouted_routes.append({
                 "vehicle_id": k + 1,
                 "color": palette[k % len(palette)],
@@ -590,8 +590,8 @@ def reroute():
                 ],
                 "incident_edges": incident_edges_list,
                 "prior": {
-                    "total_time": round(float(sol_res.solution.total_time), 2),
-                    "total_distance": round(float(sol_res.solution.total_distance), 1),
+                    "total_time": round(float(prior_under_incident.total_time), 2),
+                    "total_distance": round(float(prior_under_incident.total_distance), 1),
                     "routes": prior_routes
                 },
                 "rerouted": {

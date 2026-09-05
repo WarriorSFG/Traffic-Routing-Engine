@@ -104,6 +104,15 @@ class DynamicRerouter:
                     veh.accumulated_dist += leg_dist
                     veh.accumulated_time = 0.0
                     veh.remaining_stops.pop(0)
+            elif veh.current_node != 0:
+                # Finished customer stops, return to depot (stop 0)
+                leg_time = self.current_cost_matrix.get_time(veh.current_node, 0)
+                leg_dist = self.current_cost_matrix.get_distance(veh.current_node, 0)
+                veh.accumulated_time += dt
+                if veh.accumulated_time >= leg_time:
+                    veh.current_node = 0
+                    veh.accumulated_dist += leg_dist
+                    veh.accumulated_time = 0.0
 
         # 2. Evaluate dynamic traffic at new simulation time
         congestion_state = self.congestion_engine.evaluate(self.current_time)
@@ -125,6 +134,17 @@ class DynamicRerouter:
         self.current_cost_matrix = new_cost_matrix
         return reroute_event
 
+    def _extract_warm_start_keys(self, routes: List[List[int]]) -> List[float]:
+        """Extracts continuous [0, 1]^D keys from discrete routes for warm-starting QPSO (§10.2, §12.2)."""
+        D = self.current_problem.num_customers
+        keys = [0.5] * D
+        ordered = [s for r in routes for s in r if s != 0]
+        for rank, cust in enumerate(ordered):
+            cust_idx = cust - 1
+            if 0 <= cust_idx < D:
+                keys[cust_idx] = float(rank) / max(1, D)
+        return keys
+
     def _perform_warm_started_reroute(
         self,
         new_cost_matrix: CostMatrix,
@@ -140,7 +160,6 @@ class DynamicRerouter:
         if not unvisited_stops:
             return None  # All deliveries already completed
 
-        # If only a couple of stops remain, preserve existing order or optimize
         # Build sub-problem with new cost matrix
         sub_problem = VRPProblem(
             num_customers=self.current_problem.num_customers,
@@ -150,17 +169,27 @@ class DynamicRerouter:
             cost_matrix=new_cost_matrix
         )
 
-        # Run QPSO solver on updated matrix
+        # Extract continuous warm-start keys from prior solution (§12.2)
+        warm_keys = self._extract_warm_start_keys(self.current_routes)
+
+        # Run warm-started QPSO solver on updated matrix
         solver = QPSOSolver(
             sub_problem,
             self.penalty_config,
             self.solver_config
         )
-        res = solver.solve()
+        res = solver.solve(warm_start=warm_keys)
         self.current_problem = sub_problem
 
         old_routes = [list(r) for r in self.current_routes]
         new_routes = res.solution.routes
+
+        # Update remaining stops for vehicles that have not yet completed them
+        all_completed = {s for v in self.vehicles for s in v.completed_stops}
+        for k, route in enumerate(new_routes):
+            if k < len(self.vehicles):
+                non_depot = [node for node in route if node != 0 and node not in all_completed]
+                self.vehicles[k].remaining_stops = non_depot
 
         event = RerouteEvent(
             sim_time=self.current_time,

@@ -1,11 +1,15 @@
-import React, { useState, useRef, useMemo } from 'react';
+import React, { useState, useRef, useMemo, useId } from 'react';
 
 export default function NetworkMap({
   data,
   highlightEdge = null,
   title = "Road Network & Routing Topology",
-  height = 580
+  height = 580,
+  mapId = null
 }) {
+  const autoId = useId().replace(/[^a-zA-Z0-9_-]/g, '_');
+  const uid = mapId || `map-${autoId}`;
+
   const svgRef = useRef(null);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -43,6 +47,22 @@ export default function NetworkMap({
     return { x: px, y: py };
   };
 
+  // Build SVG path data for route, filtering out duplicate consecutive points to prevent zero-length SVG segments
+  const getRoutePath = (coords) => {
+    if (!coords || coords.length === 0) return '';
+    const unique = [];
+    for (let i = 0; i < coords.length; i++) {
+      const [x, y] = coords[i];
+      if (i === 0 || Math.abs(x - coords[i - 1][0]) > 1e-4 || Math.abs(y - coords[i - 1][1]) > 1e-4) {
+        unique.push([x, y]);
+      }
+    }
+    return unique.map(([x, y], i) => {
+      const pt = project(x, y);
+      return `${i === 0 ? 'M' : 'L'} ${pt.x.toFixed(1)} ${pt.y.toFixed(1)}`;
+    }).join(' ');
+  };
+
   // Mouse pan & zoom handlers
   const handleMouseDown = (e) => {
     if (e.button !== 0) return;
@@ -74,11 +94,10 @@ export default function NetworkMap({
     setPan({ x: 0, y: 0 });
   };
 
-  // Tooltip positioning
   const getRoadColor = (edge) => {
-    if (edge.is_closed) return '#ff0055';
-    if (edge.alpha > 3.0) return '#ef4444';
-    if (edge.alpha > 1.5) return '#f59e0b';
+    if (edge.is_closed) return '#ef4444';
+    if (edge.alpha > 3.0) return '#f87171';
+    if (edge.alpha > 1.5) return '#fbbf24';
     return '#10b981';
   };
 
@@ -88,10 +107,45 @@ export default function NetworkMap({
     return (edge.u === u1 && edge.v === v1) || (edge.u === v1 && edge.v === u1);
   };
 
+  // Disrupted / blocked edge data for prominent overlay rendered on top of routes
+  const highlightedEdgeData = useMemo(() => {
+    if (!highlightEdge) return null;
+    const [u1, v1] = highlightEdge;
+    const found = edges.find(
+      (e) => (e.u === u1 && e.v === v1) || (e.u === v1 && e.v === u1)
+    );
+    if (found) {
+      return {
+        ...found,
+        is_incident: true
+      };
+    }
+    // Fallback: look up node coordinates directly
+    const allNodes = {};
+    if (depot) allNodes[depot.node_id] = [depot.x, depot.y];
+    customers.forEach((c) => { allNodes[c.node_id] = [c.x, c.y]; });
+    intersections.forEach((i) => { allNodes[i.node_id] = [i.x, i.y]; });
+    if (allNodes[u1] && allNodes[v1]) {
+      return {
+        u: u1,
+        v: v1,
+        x0: allNodes[u1][0],
+        y0: allNodes[u1][1],
+        x1: allNodes[v1][0],
+        y1: allNodes[v1][1],
+        alpha: 12.0,
+        is_closed: true,
+        is_incident: true,
+        distance_km: 0
+      };
+    }
+    return null;
+  }, [highlightEdge, edges, depot, customers, intersections]);
+
   return (
     <div className="map-container" style={{ minHeight: height }}>
       <div className="map-header">
-        <span style={{ fontWeight: 600, color: '#f1f5f9' }}>{title}</span>
+        <span style={{ fontWeight: 600, color: 'var(--text-main)' }}>{title}</span>
         <div className="map-legend">
           <div className="legend-item">
             <span className="legend-swatch free" />
@@ -139,12 +193,8 @@ export default function NetworkMap({
           }}
         >
           <defs>
-            <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
-              <feGaussianBlur stdDeviation="3" result="blur" />
-              <feComposite in="SourceGraphic" in2="blur" operator="over" />
-            </filter>
-            <filter id="danger-glow" x="-40%" y="-40%" width="180%" height="180%">
-              <feGaussianBlur stdDeviation="6" result="blur" />
+            <filter id={`${uid}-route-glow`} x="-20%" y="-20%" width="140%" height="140%">
+              <feGaussianBlur stdDeviation="2" result="blur" />
               <feComposite in="SourceGraphic" in2="blur" operator="over" />
             </filter>
           </defs>
@@ -155,8 +205,9 @@ export default function NetworkMap({
               const p0 = project(edge.x0, edge.y0);
               const p1 = project(edge.x1, edge.y1);
               const isHighlight = isEdgeHighlighted(edge);
-              const color = isHighlight ? '#ff0055' : getRoadColor(edge);
-              const strokeWidth = isHighlight ? 6 : edge.is_closed ? 3.5 : edge.alpha > 3 ? 2.8 : edge.alpha > 1.5 ? 2.0 : 1.4;
+              const color = isHighlight ? '#ef4444' : getRoadColor(edge);
+              const strokeWidth = isHighlight ? 5 : edge.is_closed ? 3 : edge.alpha > 3 ? 2.5 : edge.alpha > 1.5 ? 2.0 : 1.2;
+              const opacity = isHighlight ? 1 : edge.is_closed ? 0.9 : edge.alpha > 1.5 ? 0.85 : 0.45;
 
               return (
                 <line
@@ -168,7 +219,7 @@ export default function NetworkMap({
                   stroke={color}
                   strokeWidth={strokeWidth}
                   strokeDasharray={edge.is_closed || isHighlight ? '5,5' : 'none'}
-                  strokeOpacity={isHighlight ? 1 : 0.85}
+                  strokeOpacity={opacity}
                   className={isHighlight ? 'pulse-edge' : ''}
                   style={{ cursor: 'pointer', transition: 'stroke 0.2s' }}
                   onMouseEnter={(e) => {
@@ -185,31 +236,155 @@ export default function NetworkMap({
               );
             })}
 
-            {/* 2. Vehicle Tour Route Overlays */}
+            {/* 2. Vehicle Tour Route Overlays with Live Animated Vehicles */}
             {routes.map((rt, rIdx) => {
               if (!rt.coordinates || rt.coordinates.length < 2) return null;
-              const points = rt.coordinates.map(([x, y]) => {
-                const pt = project(x, y);
-                return `${pt.x},${pt.y}`;
-              }).join(' ');
+              const pathD = getRoutePath(rt.coordinates);
+              if (!pathD) return null;
+              const routeId = `${uid}-route-path-${rt.vehicle_id}-${rIdx}`;
+              const animDur = `${Math.max(6, 10 + ((rIdx * 2.5) % 6))}s`;
 
               return (
-                <polyline
-                  key={`route-${rt.vehicle_id}-${rIdx}`}
-                  points={points}
-                  fill="none"
-                  stroke={rt.color}
-                  strokeWidth={4.2}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  filter="url(#glow)"
-                  opacity={0.92}
-                  style={{ pointerEvents: 'none' }}
-                />
+                <g key={`${routeId}-${pathD}`}>
+                  {/* Route Glow Underlay */}
+                  <path
+                    d={pathD}
+                    fill="none"
+                    stroke={rt.color}
+                    strokeWidth={6}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    opacity={0.2}
+                    style={{ pointerEvents: 'none' }}
+                  />
+                  {/* Route Main Path */}
+                  <path
+                    id={routeId}
+                    d={pathD}
+                    fill="none"
+                    stroke={rt.color}
+                    strokeWidth={3.2}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    opacity={0.9}
+                    filter={`url(#${uid}-route-glow)`}
+                    style={{ pointerEvents: 'none' }}
+                  />
+
+                  {/* Live Animated Vehicle Moving Along Route */}
+                  <g style={{ pointerEvents: 'none' }} className="animated-car">
+                    <animateMotion
+                      dur={animDur}
+                      repeatCount="indefinite"
+                      rotate="auto"
+                    >
+                      <mpath href={`#${routeId}`} />
+                    </animateMotion>
+                    {/* Shadow */}
+                    <ellipse cx="0" cy="0" rx="7" ry="4" fill="rgba(0,0,0,0.6)" />
+                    {/* Vehicle Chassis */}
+                    <rect x="-6.5" y="-3.5" width="13" height="7" rx="2.2" fill="#0b1120" stroke={rt.color} strokeWidth="1.5" />
+                    {/* Cabin / Windshield */}
+                    <rect x="0" y="-2" width="3.2" height="4" rx="1" fill={rt.color} opacity="0.9" />
+                    {/* Front Headlights */}
+                    <circle cx="5.5" cy="-2" r="0.9" fill="#fef08a" />
+                    <circle cx="5.5" cy="2" r="0.9" fill="#fef08a" />
+                    {/* Rear Taillights */}
+                    <circle cx="-5.5" cy="-2" r="0.8" fill="#ef4444" />
+                    <circle cx="-5.5" cy="2" r="0.8" fill="#ef4444" />
+                  </g>
+                </g>
               );
             })}
 
-            {/* 3. Intersections */}
+            {/* 2.5 Prominent Disruption / Blocked Link Overlay (Rendered ON TOP of routes so it is never covered) */}
+            {highlightedEdgeData && (() => {
+              const p0 = project(highlightedEdgeData.x0, highlightedEdgeData.y0);
+              const p1 = project(highlightedEdgeData.x1, highlightedEdgeData.y1);
+              const midX = (p0.x + p1.x) / 2;
+              const midY = (p0.y + p1.y) / 2;
+
+              return (
+                <g key="highlighted-disruption-overlay">
+                  {/* Outer pulsing danger halo */}
+                  <line
+                    x1={p0.x}
+                    y1={p0.y}
+                    x2={p1.x}
+                    y2={p1.y}
+                    stroke="#ef4444"
+                    strokeWidth={14}
+                    strokeLinecap="round"
+                    opacity={0.35}
+                    style={{ pointerEvents: 'none' }}
+                  >
+                    <animate attributeName="stroke-width" values="10;18;10" dur="1.8s" repeatCount="indefinite" />
+                    <animate attributeName="opacity" values="0.2;0.5;0.2" dur="1.8s" repeatCount="indefinite" />
+                  </line>
+
+                  {/* Dark contrast backing line */}
+                  <line
+                    x1={p0.x}
+                    y1={p0.y}
+                    x2={p1.x}
+                    y2={p1.y}
+                    stroke="#0b1120"
+                    strokeWidth={7}
+                    strokeLinecap="round"
+                    style={{ pointerEvents: 'none' }}
+                  />
+
+                  {/* Bright red and white high-contrast hazard dashes */}
+                  <line
+                    x1={p0.x}
+                    y1={p0.y}
+                    x2={p1.x}
+                    y2={p1.y}
+                    stroke="#ef4444"
+                    strokeWidth={4.5}
+                    strokeDasharray="8,6"
+                    strokeLinecap="round"
+                    style={{ pointerEvents: 'none' }}
+                  />
+
+                  {/* Center Road Closure Barrier / Warning Badge */}
+                  <g
+                    transform={`translate(${midX}, ${midY})`}
+                    style={{ cursor: 'pointer' }}
+                    onMouseEnter={(e) => {
+                      const rect = svgRef.current.getBoundingClientRect();
+                      setHoveredElement({
+                        type: 'edge',
+                        data: highlightedEdgeData,
+                        x: e.clientX - rect.left,
+                        y: e.clientY - rect.top
+                      });
+                    }}
+                    onMouseLeave={() => setHoveredElement(null)}
+                  >
+                    {/* Pulsing warning beacon */}
+                    <circle cx={0} cy={0} r={16} fill="rgba(239, 68, 68, 0.3)">
+                      <animate attributeName="r" values="13;22;13" dur="1.8s" repeatCount="indefinite" />
+                      <animate attributeName="opacity" values="0.45;0.1;0.45" dur="1.8s" repeatCount="indefinite" />
+                    </circle>
+                    {/* Badge circle */}
+                    <circle
+                      cx={0}
+                      cy={0}
+                      r={11}
+                      fill="#ef4444"
+                      stroke="#ffffff"
+                      strokeWidth={2}
+                      filter="drop-shadow(0 2px 6px rgba(0,0,0,0.8))"
+                    />
+                    {/* White Road Blocked / No Entry Bar ⛔ */}
+                    <rect x="-6.5" y="-2" width={13} height={4} rx={1.2} fill="#ffffff" />
+                  </g>
+                </g>
+              );
+            })()}
+
+            {/* 3. Road Intersections */}
             {intersections.map((intNode) => {
               const pt = project(intNode.x, intNode.y);
               return (
@@ -217,10 +392,9 @@ export default function NetworkMap({
                   key={`int-${intNode.node_id}`}
                   cx={pt.x}
                   cy={pt.y}
-                  r={3.5}
-                  fill="#475569"
-                  stroke="#1e293b"
-                  strokeWidth={1}
+                  r={2.5}
+                  fill="#334155"
+                  opacity={0.6}
                 />
               );
             })}
@@ -244,25 +418,21 @@ export default function NetworkMap({
                   }}
                   onMouseLeave={() => setHoveredElement(null)}
                 >
-                  <rect
-                    x={-9}
-                    y={-9}
-                    width={18}
-                    height={18}
-                    rx={3}
-                    fill="#2563eb"
-                    stroke="#ffffff"
-                    strokeWidth={1.5}
+                  <circle
+                    r={9}
+                    fill="#0f172a"
+                    stroke="#38bdf8"
+                    strokeWidth={1.8}
                     filter="drop-shadow(0 2px 4px rgba(0,0,0,0.5))"
                   />
                   <text
                     x={0}
                     y={3.5}
                     textAnchor="middle"
-                    fill="#ffffff"
-                    fontSize={10}
+                    fill="#f8fafc"
+                    fontSize={9.5}
                     fontWeight="700"
-                    fontFamily="Inter, sans-serif"
+                    fontFamily="Inter, -apple-system, sans-serif"
                   >
                     {cust.stop_index}
                   </text>
@@ -270,7 +440,7 @@ export default function NetworkMap({
               );
             })}
 
-            {/* 5. Depot Hub */}
+            {/* 5. Central Hub Depot with Pulsing Beacon */}
             {depot && (() => {
               const pt = project(depot.x, depot.y);
               return (
@@ -289,24 +459,28 @@ export default function NetworkMap({
                   }}
                   onMouseLeave={() => setHoveredElement(null)}
                 >
-                  {/* Glowing star */}
+                  {/* Subtle pulsing ring */}
+                  <circle cx={0} cy={0} r={16} fill="var(--color-primary)" opacity={0.25}>
+                    <animate attributeName="r" values="12;20;12" dur="3s" repeatCount="indefinite" />
+                    <animate attributeName="opacity" values="0.3;0.08;0.3" dur="3s" repeatCount="indefinite" />
+                  </circle>
+                  {/* Star shape for depot hub */}
                   <polygon
-                    points="0,-16 4.7,-4.8 16.5,-4.8 7,2.2 10.6,13.5 0,6.5 -10.6,13.5 -7,2.2 -16.5,-4.8 -4.7,-4.8"
-                    fill="#fbbf24"
-                    stroke="#000000"
+                    points="0,-14 4.1,-4.2 14.4,-4.2 6.1,1.9 9.3,11.8 0,5.7 -9.3,11.8 -6.1,1.9 -14.4,-4.2 -4.1,-4.2"
+                    fill="var(--color-primary)"
+                    stroke="#0b1120"
                     strokeWidth={1.5}
-                    filter="url(#glow)"
                   />
                   <text
                     x={0}
                     y={22}
                     textAnchor="middle"
-                    fill="#fbbf24"
-                    fontSize={11}
+                    fill="var(--color-primary)"
+                    fontSize={10.5}
                     fontWeight="700"
-                    fontFamily="Inter, sans-serif"
+                    fontFamily="Inter, -apple-system, sans-serif"
                   >
-                    Depot (Hub 0)
+                    Hub Depot
                   </text>
                 </g>
               );
@@ -314,16 +488,22 @@ export default function NetworkMap({
           </g>
         </svg>
 
-        {/* Map Control Buttons */}
+        {/* Map Control Buttons with Clean SVG Icons */}
         <div className="map-controls">
           <button className="map-ctrl-btn" title="Zoom In" onClick={() => setZoom((z) => Math.min(z * 1.25, 5))}>
-            +
+            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" strokeWidth="2.2" fill="none" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
           </button>
           <button className="map-ctrl-btn" title="Zoom Out" onClick={() => setZoom((z) => Math.max(z * 0.8, 0.5))}>
-            -
+            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" strokeWidth="2.2" fill="none" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
           </button>
-          <button className="map-ctrl-btn" title="Reset View" onClick={handleResetView} style={{ fontSize: '0.8rem' }}>
-            ⟲
+          <button className="map-ctrl-btn" title="Reset View" onClick={handleResetView}>
+            <svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" strokeWidth="2.2" fill="none" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /><polyline points="3 3 3 8 8 8" />
+            </svg>
           </button>
         </div>
 
@@ -338,14 +518,17 @@ export default function NetworkMap({
           >
             {hoveredElement.type === 'edge' && (
               <div>
-                <div style={{ fontWeight: 700, color: '#00d4ff', marginBottom: 4 }}>
-                  Road Link ({hoveredElement.data.u} ⇄ {hoveredElement.data.v})
+                <div style={{ fontWeight: 700, color: 'var(--color-primary)', marginBottom: 4 }}>
+                  Road Link ({hoveredElement.data.u} &harr; {hoveredElement.data.v})
                 </div>
                 <div>Congestion: <strong style={{ color: getRoadColor(hoveredElement.data) }}>{hoveredElement.data.alpha}x</strong></div>
                 <div>Base Time: {typeof hoveredElement.data.base_time_min === 'number' ? hoveredElement.data.base_time_min.toFixed(1) : '—'} mins</div>
                 <div>Distance: {hoveredElement.data.distance_km?.toFixed(1) || '—'} km</div>
-                {hoveredElement.data.is_closed && (
-                  <div style={{ color: '#ff0055', fontWeight: 700, marginTop: 4 }}>🚫 ROADWAY BLOCKED</div>
+                {(hoveredElement.data.is_closed || hoveredElement.data.is_incident || isEdgeHighlighted(hoveredElement.data)) && (
+                  <div style={{ color: 'var(--color-danger)', fontWeight: 700, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: 'currentColor' }} />
+                    ⛔ Road Closed / Disrupted Link
+                  </div>
                 )}
               </div>
             )}
@@ -364,7 +547,7 @@ export default function NetworkMap({
 
             {hoveredElement.type === 'depot' && (
               <div>
-                <div style={{ fontWeight: 700, color: '#fbbf24', marginBottom: 4 }}>
+                <div style={{ fontWeight: 700, color: 'var(--color-primary)', marginBottom: 4 }}>
                   Central Distribution Depot
                 </div>
                 <div>Operating Window: [{hoveredElement.data.time_window[0].toFixed(1)}h, {hoveredElement.data.time_window[1].toFixed(1)}h]</div>

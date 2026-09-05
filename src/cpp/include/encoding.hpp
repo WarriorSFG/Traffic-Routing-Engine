@@ -62,6 +62,23 @@ public:
         return split_routes(seq);
     }
 
+    // Inverse of decode: customer visitation sequence -> random keys in [0, 1]^D
+    // Given sequence [c_1, c_2, ..., c_D] (1-indexed customer IDs),
+    // produce keys such that argsort(keys) recovers this sequence.
+    std::vector<double> encode(const std::vector<int>& sequence) const {
+        int D = prob_.num_customers;
+        std::vector<double> keys(D, 0.5);
+        double step = 1.0 / (double)(D + 1);
+        for (int rank = 0; rank < (int)sequence.size(); ++rank) {
+            int cust = sequence[rank];  // 1-indexed customer ID
+            int idx = cust - 1;         // 0-indexed into keys
+            if (idx >= 0 && idx < D) {
+                keys[idx] = (rank + 1) * step;
+            }
+        }
+        return keys;
+    }
+
 private:
     const ProblemData& prob_;
 };

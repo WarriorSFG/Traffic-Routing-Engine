@@ -3,6 +3,7 @@
 #include "types.hpp"
 #include "encoding.hpp"
 #include "fitness.hpp"
+#include "gnn_solver.hpp"
 #include <vector>
 #include <random>
 #include <chrono>
@@ -49,29 +50,65 @@ public:
         std::vector<double> G(D);
         double gbest_fit = std::numeric_limits<double>::infinity();
 
+        // ── Bug Fix 1: GNN-Seeded Initialization ──
+        // Run GNN internally and encode its solution as particle 0.
+        // This ensures QPSO starts no worse than the GNN baseline.
+        GNNSolver gnn_solver(prob_, weights_);
+        SolverResult gnn_res = gnn_solver.solve();
+
+        // Extract customer visitation order from GNN routes
+        std::vector<int> gnn_sequence;
+        for (const auto& route : gnn_res.best_solution.routes) {
+            for (int stop : route) {
+                if (stop != 0) {
+                    gnn_sequence.push_back(stop);
+                }
+            }
+        }
+
+        // Encode GNN sequence as random keys
+        std::vector<double> gnn_keys = decoder_.encode(gnn_sequence);
+
         // 1. Swarm Initialization (§11.6 Step 1)
-        for (int i = 0; i < swarm_size_; ++i) {
+        // Particle 0 = GNN solution
+        X[0] = gnn_keys;
+        P[0] = gnn_keys;
+
+        // Particles 1..4 = small perturbations of GNN (neighborhood exploration)
+        for (int i = 1; i < std::min(swarm_size_, 5); ++i) {
+            for (int j = 0; j < D; ++j) {
+                double noise = (dist01(rng) - 0.5) * 0.08;
+                X[i][j] = gnn_keys[j] + noise;
+                // Modular wrap into [0, 1]
+                X[i][j] = X[i][j] - std::floor(X[i][j]);
+                P[i][j] = X[i][j];
+            }
+        }
+
+        // Remaining particles = random initialization
+        for (int i = 5; i < swarm_size_; ++i) {
             for (int j = 0; j < D; ++j) {
                 X[i][j] = dist01(rng);
                 P[i][j] = X[i][j];
             }
         }
 
-        // Apply warm start if provided (e.g. from prior time step during dynamic re-routing)
+        // Apply external warm start if provided (e.g. from dynamic re-routing §12.2)
+        // This overrides particle 0 if provided
         if (!warm_start_keys.empty() && (int)warm_start_keys.size() == D) {
             X[0] = warm_start_keys;
             P[0] = warm_start_keys;
-            // Seed a few neighboring particles around the warm start with small perturbations
             for (int i = 1; i < std::min(swarm_size_, 5); ++i) {
                 for (int j = 0; j < D; ++j) {
                     double noise = (dist01(rng) - 0.5) * 0.1;
-                    X[i][j] = std::clamp(warm_start_keys[j] + noise, 0.0, 1.0);
+                    X[i][j] = warm_start_keys[j] + noise;
+                    X[i][j] = X[i][j] - std::floor(X[i][j]);
                     P[i][j] = X[i][j];
                 }
             }
         }
 
-        // Initial swarm evaluation
+        // Initial swarm evaluation (§11.6 Step 1)
         #pragma omp parallel for
         for (int i = 0; i < swarm_size_; ++i) {
             auto routes = decoder_.decode(X[i]);
@@ -96,9 +133,67 @@ public:
         std::vector<double> mbest(D, 0.0);
         std::vector<double> current_fit(swarm_size_);
 
-        // 2. QPSO Iteration Loop (§11.6)
+        // ── Bug Fix 3: Correct QPSO Iteration Order (§11.6) ──
+        // The reference specifies:
+        //   1. Evaluate fitness F(X_i^t)
+        //   2. Update P_i if improved; update G if improved
+        //   3. Compute mbest
+        //   4. Update beta(t)
+        //   5. Update positions X via quantum sampling
+        //   6. Clamp X into [0,1]
+
         for (int iter = 1; iter <= max_iter_; ++iter) {
-            // Step A: Compute mean best position (mbest) (§11.2)
+
+            // Step 1: Evaluate fitness for every particle (§11.6 Step 1)
+            #pragma omp parallel for
+            for (int i = 0; i < swarm_size_; ++i) {
+                auto routes = decoder_.decode(X[i]);
+                current_fit[i] = evaluator_.evaluate_fitness_fast(routes);
+            }
+
+            // Step 2: Update personal bests P_i and global best G (§11.6 Step 2)
+            double iter_best = std::numeric_limits<double>::infinity();
+            for (int i = 0; i < swarm_size_; ++i) {
+                if (current_fit[i] < pbest_fit[i]) {
+                    pbest_fit[i] = current_fit[i];
+                    P[i] = X[i];
+                }
+                if (pbest_fit[i] < gbest_fit) {
+                    gbest_fit = pbest_fit[i];
+                    G = P[i];
+                }
+                if (current_fit[i] < iter_best) {
+                    iter_best = current_fit[i];
+                }
+            }
+
+            // ── Bug Fix 4: Periodic 2-opt local search on global best ──
+            // Every 10 iterations, apply intra-route 2-opt refinement to the
+            // global best decoded routes, then re-encode and update G if improved.
+            if (iter % 10 == 0) {
+                auto g_routes = decoder_.decode(G);
+                bool improved = false;
+                for (auto& route : g_routes) {
+                    if (route.size() <= 4) continue; // depot + 2 customers + depot minimum
+                    improved |= apply_2opt(route);
+                }
+                if (improved) {
+                    double new_fit = evaluator_.evaluate_fitness_fast(g_routes);
+                    if (new_fit < gbest_fit) {
+                        // Re-encode the improved routes back to random keys
+                        std::vector<int> improved_seq;
+                        for (const auto& route : g_routes) {
+                            for (int stop : route) {
+                                if (stop != 0) improved_seq.push_back(stop);
+                            }
+                        }
+                        G = decoder_.encode(improved_seq);
+                        gbest_fit = new_fit;
+                    }
+                }
+            }
+
+            // Step 3: Compute mean best position mbest (§11.2)
             // mbest_j = (1 / M) * sum_{i=1}^M P_{ij}
             std::fill(mbest.begin(), mbest.end(), 0.0);
             for (int i = 0; i < swarm_size_; ++i) {
@@ -111,11 +206,11 @@ public:
                 mbest[j] *= inv_M;
             }
 
-            // Step B: Update contraction-expansion coefficient beta(t) (§11.5)
+            // Step 4: Update contraction-expansion coefficient beta(t) (§11.5)
             // beta(t) = beta_max - (beta_max - beta_min) * (t / T_max)
             double beta = beta_max_ - (beta_max_ - beta_min_) * ((double)iter / (double)max_iter_);
 
-            // Step C: Quantum position sampling update (§11.3, §11.4)
+            // Step 5: Quantum position sampling update (§11.3, §11.4)
             for (int i = 0; i < swarm_size_; ++i) {
                 for (int j = 0; j < D; ++j) {
                     // Local attractor: p_ij = phi * P_ij + (1 - phi) * G_j
@@ -131,34 +226,13 @@ public:
                     double sign = coin(rng) ? 1.0 : -1.0;
                     double next_val = p_ij + sign * jump;
 
-                    // Clamping into [0, 1] (§11.6 Step 6)
-                    if (next_val < 0.0) next_val = 0.0;
-                    else if (next_val > 1.0) next_val = 1.0;
+                    // ── Bug Fix 2: Modular wrapping instead of hard clamping ──
+                    // Preserves relative ordering information by wrapping around
+                    // [0, 1] instead of crushing values to the boundary.
+                    // Step 6: Wrap X into [0, 1] (replaces §11.6 Step 6 clamping)
+                    next_val = next_val - std::floor(next_val);
 
                     X[i][j] = next_val;
-                }
-            }
-
-            // Step D: Parallel fitness evaluation
-            #pragma omp parallel for
-            for (int i = 0; i < swarm_size_; ++i) {
-                auto routes = decoder_.decode(X[i]);
-                current_fit[i] = evaluator_.evaluate_fitness_fast(routes);
-            }
-
-            // Step E: Update personal bests P_i and global best G (§11.6 Step 2)
-            double iter_best = std::numeric_limits<double>::infinity();
-            for (int i = 0; i < swarm_size_; ++i) {
-                if (current_fit[i] < pbest_fit[i]) {
-                    pbest_fit[i] = current_fit[i];
-                    P[i] = X[i];
-                }
-                if (pbest_fit[i] < gbest_fit) {
-                    gbest_fit = pbest_fit[i];
-                    G = P[i];
-                }
-                if (current_fit[i] < iter_best) {
-                    iter_best = current_fit[i];
                 }
             }
 
@@ -185,6 +259,39 @@ private:
     double beta_max_;
     double beta_min_;
     unsigned int seed_;
+
+    // Intra-route 2-opt improvement (Bug Fix 4)
+    // Reverses a segment of the route if it reduces travel time.
+    // Returns true if any improvement was made.
+    bool apply_2opt(std::vector<int>& route) const {
+        if (route.size() < 4) return false;
+        int n = (int)route.size();
+        bool improved = false;
+        bool changed = true;
+
+        while (changed) {
+            changed = false;
+            for (int i = 1; i < n - 2; ++i) {
+                for (int j = i + 1; j < n - 1; ++j) {
+                    // Current edges: (route[i-1], route[i]) and (route[j], route[j+1])
+                    // Candidate edges: (route[i-1], route[j]) and (route[i], route[j+1])
+                    double d_old = prob_.get_time(route[i - 1], route[i])
+                                 + prob_.get_time(route[j], route[j + 1]);
+                    double d_new = prob_.get_time(route[i - 1], route[j])
+                                 + prob_.get_time(route[i], route[j + 1]);
+
+                    if (d_new < d_old - 1e-10) {
+                        // Reverse the segment [i..j]
+                        std::reverse(route.begin() + i, route.begin() + j + 1);
+                        changed = true;
+                        improved = true;
+                    }
+                }
+            }
+        }
+        return improved;
+    }
 };
 
 } // namespace traffic_routing
+

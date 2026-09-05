@@ -56,7 +56,7 @@ class VRPConfig:
     max_demand: float = 30.0
     default_service_time: float = 0.15  # Hours (~9 mins per delivery)
     depot_window: Tuple[float, float] = (6.0, 18.0)  # Operating hours (6:00 to 18:00)
-    time_window_length: float = 2.5     # Hours per delivery window
+    time_window_length: float = 6.0     # Hours per delivery window
 
 
 @dataclass
@@ -65,7 +65,7 @@ class PenaltyConfig:
     lambda_capacity: float = 1000.0
     lambda_route: float = 1000.0
     lambda_tw: float = 500.0
-    rho_early: float = 10.0
+    rho_early: float = 0.0
     rho_late: float = 50.0   # Late arrival is penalized heavier than waiting early
     auto_scale: bool = True   # Automatically scale lambdas to 10 * max(C) * |S|
 

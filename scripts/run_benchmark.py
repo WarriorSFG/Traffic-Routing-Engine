@@ -70,8 +70,8 @@ def main():
     pso_stat = report.stats.get("Classical PSO")
 
     if qpso_stat and gnn_stat:
-        improvement = ((gnn_stat.mean_time_hours - qpso_stat.mean_time_hours) / gnn_stat.mean_time_hours) * 100.0
-        print(f">> QPSO Average Travel Time Improvement vs GNN: {improvement:.2f}%")
+        fit_imp = ((gnn_stat.mean_fitness - qpso_stat.mean_fitness) / gnn_stat.mean_fitness) * 100.0
+        print(f">> QPSO Solution Quality (Fitness) Improvement vs GNN: {fit_imp:.2f}% (GNN Feasibility: {gnn_stat.feasibility_rate:.1f}%)")
     if qpso_stat and pso_stat:
         improvement_pso = ((pso_stat.mean_time_hours - qpso_stat.mean_time_hours) / pso_stat.mean_time_hours) * 100.0
         print(f">> QPSO Average Travel Time Improvement vs Classical PSO: {improvement_pso:.2f}%")

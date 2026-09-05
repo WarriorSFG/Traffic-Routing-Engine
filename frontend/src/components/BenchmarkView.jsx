@@ -1,5 +1,39 @@
 import React, { useState } from 'react';
 
+const benchIcons = {
+  chart: (
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="23 6 13.5 15.5 8.5 10.5 1 18" /><polyline points="17 6 23 6 23 12" />
+    </svg>
+  ),
+  play: (
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+      <polygon points="5 3 19 12 5 21 5 3" />
+    </svg>
+  ),
+  award: (
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="8" r="7" /><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88" />
+    </svg>
+  ),
+  alert: (
+    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+      <line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" />
+    </svg>
+  ),
+  check: (
+    <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="20 6 9 17 4 12" />
+    </svg>
+  ),
+  barChart: (
+    <svg viewBox="0 0 24 24" width="36" height="36" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="18" y1="20" x2="18" y2="10" /><line x1="12" y1="20" x2="12" y2="4" /><line x1="6" y1="20" x2="6" y2="14" />
+    </svg>
+  )
+};
+
 export default function BenchmarkView({ params }) {
   const [numRuns, setNumRuns] = useState(3);
   const [loading, setLoading] = useState(false);
@@ -71,9 +105,12 @@ export default function BenchmarkView({ params }) {
     return (
       <div className="chart-container">
         <div className="chart-header">
-          <span style={{ fontWeight: 600, color: '#f1f5f9' }}>
-            📉 Convergence Analysis: Best Objective Value F(X) vs. Iteration
-          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ color: 'var(--color-primary)', display: 'flex' }}>{benchIcons.chart}</span>
+            <span style={{ fontWeight: 600, color: 'var(--text-main)', fontSize: '0.88rem' }}>
+              Convergence Analysis: Best Objective Value F(X) vs. Iteration
+            </span>
+          </div>
           <div className="chart-legend">
             <div className="chart-legend-item">
               <span className="chart-line-indicator" style={{ background: '#94a3b8', borderTop: '1px dashed #94a3b8' }} />
@@ -84,8 +121,8 @@ export default function BenchmarkView({ params }) {
               <span>Classical PSO</span>
             </div>
             <div className="chart-legend-item">
-              <span className="chart-line-indicator" style={{ background: '#00d4ff', height: '4px' }} />
-              <strong style={{ color: '#00d4ff' }}>Quantum-Inspired PSO (QPSO)</strong>
+              <span className="chart-line-indicator" style={{ background: 'var(--color-primary)', height: '3px' }} />
+              <strong style={{ color: 'var(--color-primary)' }}>Quantum-Inspired PSO (QPSO)</strong>
             </div>
           </div>
         </div>
@@ -97,7 +134,7 @@ export default function BenchmarkView({ params }) {
             return (
               <g key={`grid-${i}`}>
                 <line x1={padX} y1={y} x2={w - padX} y2={y} stroke="rgba(255,255,255,0.06)" strokeDasharray="3,3" />
-                <text x={padX - 8} y={y + 4} textAnchor="end" fill="#64748b" fontSize="10" fontFamily="JetBrains Mono">
+                <text x={padX - 8} y={y + 4} textAnchor="end" fill="var(--text-muted)" fontSize="10" fontFamily="JetBrains Mono, monospace">
                   {val.toFixed(1)}
                 </text>
               </g>
@@ -105,9 +142,9 @@ export default function BenchmarkView({ params }) {
           })}
 
           {/* Iteration X axis labels */}
-          <text x={padX} y={h - 10} fill="#64748b" fontSize="10" fontFamily="JetBrains Mono">0</text>
-          <text x={w / 2} y={h - 10} textAnchor="middle" fill="#94a3b8" fontSize="11">Iteration Number (t)</text>
-          <text x={w - padX} y={h - 10} textAnchor="end" fill="#64748b" fontSize="10" fontFamily="JetBrains Mono">{maxIter}</text>
+          <text x={padX} y={h - 10} fill="var(--text-muted)" fontSize="10" fontFamily="JetBrains Mono, monospace">0</text>
+          <text x={w / 2} y={h - 10} textAnchor="middle" fill="var(--text-muted)" fontSize="11">Iteration Number (t)</text>
+          <text x={w - padX} y={h - 10} textAnchor="end" fill="var(--text-muted)" fontSize="10" fontFamily="JetBrains Mono, monospace">{maxIter}</text>
 
           {/* Lines */}
           <polyline
@@ -128,9 +165,8 @@ export default function BenchmarkView({ params }) {
           <polyline
             points={getPolylinePoints('Quantum-Inspired PSO (QPSO)')}
             fill="none"
-            stroke="#00d4ff"
-            strokeWidth="3.5"
-            style={{ filter: 'drop-shadow(0 0 6px rgba(0,212,255,0.5))' }}
+            stroke="var(--color-primary)"
+            strokeWidth="3.2"
           />
         </svg>
       </div>
@@ -143,17 +179,17 @@ export default function BenchmarkView({ params }) {
       <div className="metric-card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 16 }}>
           <div>
-            <h3 style={{ fontSize: '1.2rem', fontFamily: 'var(--font-display)', color: '#ffffff' }}>
+            <h3 style={{ fontSize: '1.15rem', fontFamily: 'var(--font-display)', color: 'var(--text-main)', fontWeight: 600 }}>
               Systematic Performance Benchmarking
             </h3>
-            <p style={{ color: '#94a3b8', fontSize: '0.85rem', marginTop: 4 }}>
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.82rem', marginTop: 4 }}>
               Evaluates convergence rate, solution quality, relative gap, and wall-clock execution time across repeated stochastic trials.
             </p>
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <label htmlFor="runs-slider" style={{ fontSize: '0.85rem', color: '#94a3b8' }}>Stochastic Trials (R):</label>
+              <label htmlFor="runs-slider" style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>Stochastic Trials (R):</label>
               <span className="control-value">{numRuns}</span>
               <input
                 id="runs-slider"
@@ -171,21 +207,35 @@ export default function BenchmarkView({ params }) {
               className="btn btn-primary"
               onClick={handleRunBenchmark}
               disabled={loading}
+              style={{ display: 'flex', alignItems: 'center', gap: 8 }}
             >
               {loading ? (
                 <>
                   <span className="spinner" /> Running Multi-Trial Benchmark...
                 </>
               ) : (
-                '▶️ Execute Benchmark Comparison'
+                <>
+                  {benchIcons.play}
+                  <span>Execute Benchmark Comparison</span>
+                </>
               )}
             </button>
           </div>
         </div>
 
         {error && (
-          <div style={{ background: 'rgba(239, 68, 68, 0.15)', border: '1px solid #ef4444', padding: '10px 14px', borderRadius: '6px', color: '#fca5a5', fontSize: '0.85rem' }}>
-            ⚠️ {error}
+          <div style={{
+            background: 'rgba(239, 68, 68, 0.12)',
+            border: '1px solid rgba(239, 68, 68, 0.3)',
+            padding: '10px 14px',
+            borderRadius: 'var(--radius-sm)',
+            color: '#fca5a5',
+            fontSize: '0.85rem',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8
+          }}>
+            {benchIcons.alert} {error}
           </div>
         )}
       </div>
@@ -196,9 +246,12 @@ export default function BenchmarkView({ params }) {
           {/* Scorecard Table */}
           <div className="table-container">
             <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontWeight: 600, color: '#ffffff', fontSize: '0.95rem' }}>
-                🏆 Metaheuristic Performance Scorecard
-              </span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ color: 'var(--color-primary)', display: 'flex' }}>{benchIcons.award}</span>
+                <span style={{ fontWeight: 600, color: 'var(--text-main)', fontSize: '0.92rem' }}>
+                  Metaheuristic Performance Scorecard
+                </span>
+              </div>
               <span className="badge badge-primary">
                 Swarm Size: {params.swarm_size} | Max Iter: {params.max_iter} | R = {numRuns}
               </span>
@@ -253,7 +306,7 @@ export default function BenchmarkView({ params }) {
                           : (row['Mean Dist (km)'] ?? row['Fleet Distance (km)'] ?? '—')}
                       </td>
                       <td>
-                        <span style={{ fontFamily: 'JetBrains Mono', color: isQpso ? '#00d4ff' : 'inherit' }}>
+                        <span style={{ fontFamily: 'JetBrains Mono, monospace', color: isQpso ? 'var(--color-primary)' : 'inherit' }}>
                           {typeof row['Mean Compute (ms)'] === 'number'
                             ? row['Mean Compute (ms)'].toFixed(2)
                             : (row['Mean Compute (ms)'] ?? row['Wall-Clock Time (ms)'] ?? '—')} ms
@@ -261,7 +314,7 @@ export default function BenchmarkView({ params }) {
                       </td>
                       <td>
                         <span style={{
-                          color: (row['Relative Gap (%)'] === 0 || row['Relative Gap (%)'] === '0.00%' || row['Optimality Gap (%)'] === '0.00%') ? '#10b981' : '#f59e0b',
+                          color: (row['Relative Gap (%)'] === 0 || row['Relative Gap (%)'] === '0.00%' || row['Optimality Gap (%)'] === '0.00%') ? 'var(--color-success)' : 'var(--color-warning)',
                           fontWeight: 600
                         }}>
                           {typeof row['Relative Gap (%)'] === 'number'
@@ -271,9 +324,11 @@ export default function BenchmarkView({ params }) {
                       </td>
                       <td>
                         {(row['Feasibility Rate'] === '100.0%' || row['Feasibility Rate (%)'] === '100.0%' || row['Feasibility Rate'] === 1.0) ? (
-                          <span style={{ color: '#10b981' }}>✅ 100%</span>
+                          <span style={{ color: 'var(--color-success)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                            {benchIcons.check} 100%
+                          </span>
                         ) : (
-                          <span style={{ color: '#f59e0b' }}>{row['Feasibility Rate'] ?? row['Feasibility Rate (%)'] ?? '—'}</span>
+                          <span style={{ color: 'var(--color-warning)' }}>{row['Feasibility Rate'] ?? row['Feasibility Rate (%)'] ?? '—'}</span>
                         )}
                       </td>
                     </tr>
@@ -295,10 +350,12 @@ export default function BenchmarkView({ params }) {
           background: 'var(--bg-card)',
           borderRadius: 'var(--radius-md)',
           border: '1px dashed var(--border-subtle)',
-          color: '#64748b'
+          color: 'var(--text-muted)'
         }}>
-          <div style={{ fontSize: '2.5rem', marginBottom: 12 }}>📊</div>
-          <h4 style={{ color: '#94a3b8', fontSize: '1.05rem', fontWeight: 600 }}>Ready for Multi-Trial Benchmarking</h4>
+          <div style={{ color: 'var(--color-primary)', display: 'flex', justifyContent: 'center', marginBottom: 12 }}>
+            {benchIcons.barChart}
+          </div>
+          <h4 style={{ color: 'var(--text-main)', fontSize: '1.05rem', fontWeight: 600 }}>Ready for Multi-Trial Benchmarking</h4>
           <p style={{ fontSize: '0.85rem', marginTop: 4, maxWidth: '500px', margin: '6px auto 0' }}>
             Click <strong>"Execute Benchmark Comparison"</strong> above to run GNN, Classical PSO, and compiled C++ QPSO across repeated trials.
           </p>

@@ -3,6 +3,38 @@ import NetworkMap from './NetworkMap';
 import MetricsBar from './MetricsBar';
 import TourSchedule from './TourSchedule';
 
+const icons = {
+  target: (
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="10" /><circle cx="12" cy="12" r="6" /><circle cx="12" cy="12" r="2" />
+    </svg>
+  ),
+  clock: (
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" />
+    </svg>
+  ),
+  sun: (
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="5" />
+      <line x1="12" y1="1" x2="12" y2="3" /><line x1="12" y1="21" x2="12" y2="23" />
+      <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" /><line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+      <line x1="1" y1="12" x2="3" y2="12" /><line x1="21" y1="12" x2="23" y2="12" />
+      <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" /><line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+    </svg>
+  ),
+  chevronDown: (
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="6 9 12 15 18 9" />
+    </svg>
+  ),
+  chevronUp: (
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="18 15 12 9 6 15" />
+    </svg>
+  )
+};
+
 export default function DispatchStudio({
   simulationData,
   loading,
@@ -15,7 +47,6 @@ export default function DispatchStudio({
 }) {
   const [selectedVehicle, setSelectedVehicle] = useState('all');
   const [showExplainer, setShowExplainer] = useState(true);
-  const [selectedStop, setSelectedStop] = useState(null);
 
   const routes = simulationData?.routes || [];
   const metrics = simulationData?.metrics;
@@ -30,23 +61,27 @@ export default function DispatchStudio({
       {/* 1. What Gets Optimized Explainer Banner (Collapsible) */}
       <div className="metric-card explainer-card">
         <div className="explainer-header">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span className="explainer-icon">🎯</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <span className="explainer-icon">{icons.target}</span>
             <div>
-              <h3 style={{ fontSize: '1.05rem', color: '#ffffff', fontWeight: 600 }}>
-                Fleet Routing Optimization Principles: What Gets Solved
+              <h3 style={{ fontSize: '1.02rem', color: 'var(--text-main)', fontWeight: 600 }}>
+                Fleet Routing Optimization Principles
               </h3>
-              <p style={{ color: '#94a3b8', fontSize: '0.8rem', marginTop: 2 }}>
+              <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', marginTop: 2 }}>
                 High-dimensional Capacitated Vehicle Routing Problem with Time Windows (CVRPTW) under time-varying traffic congestion.
               </p>
             </div>
           </div>
           <button
             className="btn btn-ghost"
-            style={{ fontSize: '0.8rem', padding: '4px 10px' }}
+            style={{ fontSize: '0.78rem', padding: '5px 12px', display: 'flex', alignItems: 'center', gap: 6 }}
             onClick={() => setShowExplainer(!showExplainer)}
           >
-            {showExplainer ? 'Hide Details ▲' : 'Show Details ▼'}
+            {showExplainer ? (
+              <><span>Hide Details</span> {icons.chevronUp}</>
+            ) : (
+              <><span>Show Details</span> {icons.chevronDown}</>
+            )}
           </button>
         </div>
 
@@ -65,7 +100,7 @@ export default function DispatchStudio({
             <div className="explainer-item">
               <div className="explainer-badge">CONSTRAINT 2</div>
               <strong>Customer Delivery Windows</strong>
-              <p>Ensures vehicles arrive within client time windows $[e_i, l_i]$, penalizing early wait times and late delivery delays.</p>
+              <p>Ensures vehicles arrive within client time windows [e_i, l_i], penalizing early wait times and late delivery delays.</p>
             </div>
             <div className="explainer-item">
               <div className="explainer-badge">SOLVER</div>
@@ -86,7 +121,7 @@ export default function DispatchStudio({
           {/* Map Controls Toolbar */}
           <div className="map-toolbar">
             <div className="toolbar-left">
-              <span className="toolbar-label">Vehicle Route Isolation:</span>
+              <span className="toolbar-label">Route Isolation:</span>
               <div className="filter-pills">
                 <button
                   className={`pill-btn ${selectedVehicle === 'all' ? 'active' : ''}`}
@@ -100,36 +135,38 @@ export default function DispatchStudio({
                     className={`pill-btn ${selectedVehicle === String(vId) ? 'active' : ''}`}
                     onClick={() => setSelectedVehicle(String(vId))}
                   >
-                    Vehicle #{vId}
+                    Vehicle {vId}
                   </button>
                 ))}
               </div>
             </div>
 
             <div className="toolbar-right">
-              <span className="sim-clock-indicator">
-                🕒 Sim Clock: <strong>{simClock.toFixed(1)}:00</strong>
+              <span className="sim-clock-indicator" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                {icons.clock}
+                <span>Clock: <strong>{simClock.toFixed(1)}:00</strong></span>
               </span>
             </div>
           </div>
 
           <NetworkMap
+            mapId="dispatch-main-map"
             data={{
               ...simulationData,
               routes: filteredRoutes
             }}
-            title="Interactive Urban Road Network & Real-Time Fleet Routes"
+            title="Urban Road Network & Fleet Routes"
             height={520}
           />
 
           {/* Time of Day Simulation Scrub Bar */}
           <div className="clock-slider-card">
             <div className="clock-slider-header">
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: '1.2rem' }}>☀️</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ color: 'var(--color-primary)', display: 'flex' }}>{icons.sun}</span>
                 <div>
-                  <span style={{ fontWeight: 600, fontSize: '0.85rem', color: '#f3f6fb' }}>Time-of-Day Traffic Simulation</span>
-                  <span style={{ fontSize: '0.75rem', color: '#94a3b8', marginLeft: 8 }}>
+                  <span style={{ fontWeight: 600, fontSize: '0.85rem', color: 'var(--text-main)' }}>Time-of-Day Traffic Simulation</span>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginLeft: 8 }}>
                     Morning Rush-Hour: 7:00 AM &ndash; 10:00 AM (Peak at 8:00 AM, &alpha; = 3.5&times;)
                   </span>
                 </div>
@@ -153,7 +190,7 @@ export default function DispatchStudio({
               />
               <div className="clock-ticks">
                 <span>6:00 AM (Depot Opens)</span>
-                <span style={{ color: '#ef4444', fontWeight: 600 }}>8:00 AM (Peak Rush Hour)</span>
+                <span style={{ color: 'var(--color-danger)', fontWeight: 600 }}>8:00 AM (Peak Rush Hour)</span>
                 <span>12:00 PM (Midday)</span>
                 <span>18:00 PM (Depot Closes)</span>
               </div>

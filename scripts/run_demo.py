@@ -80,8 +80,11 @@ def run_demo():
     print(f"  [3] Quantum-Inspired PSO (Delta-Potential Well QPSO):")
     print(f"      Fleet Travel Time: {res_qpso.solution.total_time:.2f}h | Distance: {res_qpso.solution.total_distance:.1f}km | Compute: {res_qpso.compute_time_ms:.2f}ms | Fitness: {res_qpso.best_fitness:.2f}")
 
-    time_diff = ((res_gnn.solution.total_time - res_qpso.solution.total_time) / res_gnn.solution.total_time) * 100.0
-    print(f"\n  >> QPSO Travel Time Savings vs GNN Baseline: {time_diff:.2f}%")
+    fit_diff = ((res_gnn.best_fitness - res_qpso.best_fitness) / res_gnn.best_fitness) * 100.0
+    print(f"\n  >> QPSO Solution Fitness Improvement vs GNN: {fit_diff:.2f}% (GNN Infeasible Penalty: {res_gnn.best_fitness - res_gnn.solution.total_time:.2f})")
+    if res_pso.solution.total_time > 0:
+        pso_time_diff = ((res_pso.solution.total_time - res_qpso.solution.total_time) / res_pso.solution.total_time) * 100.0
+        print(f"  >> QPSO Travel Time Improvement vs Classical PSO: {pso_time_diff:+.2f}%")
     print(f"  >> QPSO Decoded Vehicle Tours:")
     for k, r in enumerate(res_qpso.solution.routes):
         print(f"     Vehicle {k+1}: {' -> '.join(str(s) for s in r)}")

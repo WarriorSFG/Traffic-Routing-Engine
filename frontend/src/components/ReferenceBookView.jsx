@@ -3,6 +3,24 @@ import { marked } from 'marked';
 import katex from 'katex';
 import 'katex/dist/katex.min.css';
 
+const bookIcons = {
+  search: (
+    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+    </svg>
+  ),
+  book: (
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" /><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+    </svg>
+  ),
+  close: (
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+    </svg>
+  )
+};
+
 // Custom Markdown Renderer that renders LaTeX equations via KaTeX
 function renderMathMarkdown(markdownText) {
   if (!markdownText) return '';
@@ -109,8 +127,8 @@ export default function ReferenceBookView() {
     return (
       <div className="book-loading-state">
         <div className="spinner" style={{ width: 36, height: 36, borderWidth: 3 }} />
-        <h3 style={{ color: '#ffffff', marginTop: 16 }}>Loading The Quantum Routing Handbook...</h3>
-        <p style={{ color: '#94a3b8', fontSize: '0.85rem' }}>Preparing mathematical derivations and KaTeX equations</p>
+        <h3 style={{ color: 'var(--text-main)', marginTop: 16 }}>Loading The Mathematical Reference...</h3>
+        <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Preparing derivations and KaTeX equations</p>
       </div>
     );
   }
@@ -127,7 +145,7 @@ export default function ReferenceBookView() {
 
         {/* Chapter Search Bar */}
         <div className="book-search-box">
-          <span className="search-icon">🔍</span>
+          <span className="search-icon" style={{ display: 'flex', color: 'var(--text-muted)' }}>{bookIcons.search}</span>
           <input
             type="text"
             className="book-search-input"
@@ -136,7 +154,7 @@ export default function ReferenceBookView() {
             onChange={(e) => setSearchQuery(e.target.value)}
           />
           {searchQuery && (
-            <button className="clear-search-btn" onClick={() => setSearchQuery('')}>×</button>
+            <button className="clear-search-btn" onClick={() => setSearchQuery('')}>&times;</button>
           )}
         </div>
 
@@ -163,10 +181,11 @@ export default function ReferenceBookView() {
         <div className="book-sidebar-footer">
           <button
             className="btn btn-secondary glossary-trigger-btn"
-            style={{ width: '100%' }}
+            style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
             onClick={() => setShowGlossary(true)}
           >
-            📐 Quick Symbol Glossary ({glossaryItems.length || 20})
+            {bookIcons.book}
+            <span>Symbol Glossary ({glossaryItems.length || 20})</span>
           </button>
         </div>
       </aside>
@@ -203,7 +222,7 @@ export default function ReferenceBookView() {
                     className="btn btn-ghost pagination-btn"
                     onClick={() => setActiveChapterIndex(activeChapterIndex - 1)}
                   >
-                    ← Previous: {chapters[activeChapterIndex - 1]?.title.slice(0, 28)}...
+                    &larr; Previous: {chapters[activeChapterIndex - 1]?.title.slice(0, 28)}...
                   </button>
                 ) : <div />}
 
@@ -212,7 +231,7 @@ export default function ReferenceBookView() {
                     className="btn btn-primary pagination-btn"
                     onClick={() => setActiveChapterIndex(activeChapterIndex + 1)}
                   >
-                    Next: {chapters[activeChapterIndex + 1]?.title.slice(0, 28)}... →
+                    Next: {chapters[activeChapterIndex + 1]?.title.slice(0, 28)}... &rarr;
                   </button>
                 )}
               </div>
@@ -232,14 +251,16 @@ export default function ReferenceBookView() {
           <div className="glossary-drawer" onClick={(e) => e.stopPropagation()}>
             <div className="glossary-header">
               <div>
-                <h3 style={{ color: '#ffffff', fontSize: '1.15rem', fontWeight: 600 }}>
-                  📐 Mathematical Symbol Glossary
+                <h3 style={{ color: 'var(--text-main)', fontSize: '1.15rem', fontWeight: 600 }}>
+                  Mathematical Symbol Glossary
                 </h3>
-                <p style={{ color: '#94a3b8', fontSize: '0.8rem', marginTop: 2 }}>
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', marginTop: 2 }}>
                   Quick reference from Appendix A of the Reference Handbook.
                 </p>
               </div>
-              <button className="btn-close-drawer" onClick={() => setShowGlossary(false)}>×</button>
+              <button className="btn-close-drawer" onClick={() => setShowGlossary(false)}>
+                {bookIcons.close}
+              </button>
             </div>
 
             <div className="glossary-content">
@@ -260,7 +281,7 @@ export default function ReferenceBookView() {
                     ))
                   ) : (
                     <tr>
-                      <td colSpan={2} style={{ textAlign: 'center', color: '#94a3b8', padding: 24 }}>
+                      <td colSpan={2} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: 24 }}>
                         Symbols are documented in Appendix A.
                       </td>
                     </tr>

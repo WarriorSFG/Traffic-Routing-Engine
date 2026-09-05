@@ -107,12 +107,12 @@ def create_vrp_problem(
         demand = float(np.random.uniform(config.min_demand, config.max_demand))
         # Estimate approximate travel time from depot to give realistic feasible windows
         approx_travel = cost_matrix.get_time(0, idx)
-        earliest_possible = depot_start + approx_travel
-        
-        # Stagger delivery time windows across operating hours
-        max_start = max(earliest_possible, depot_end - window_length - config.default_service_time)
-        e_i = float(np.random.uniform(earliest_possible, max_start))
-        l_i = min(depot_end, e_i + window_length)
+        # Ensure earliest delivery start is feasible and bounded before depot close
+        earliest_possible = min(depot_start + approx_travel, depot_end - config.default_service_time - 0.5)
+        earliest_bound = max(depot_start, earliest_possible)
+        latest_start = max(earliest_bound, depot_end - window_length - config.default_service_time)
+        e_i = float(np.random.uniform(earliest_bound, latest_start)) if latest_start > earliest_bound else earliest_bound
+        l_i = max(e_i + 0.5, min(depot_end, e_i + window_length))
 
         stops_info.append(
             StopInfo(
