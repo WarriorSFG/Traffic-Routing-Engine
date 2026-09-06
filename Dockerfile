@@ -29,5 +29,5 @@ EXPOSE 5000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
   CMD curl -f http://localhost:${PORT}/api/health || exit 1
 
-# Start Flask backend API
-CMD ["sh", "-c", "python scripts/run_web.py --host 0.0.0.0 --port ${PORT}"]
+# Start multi-threaded production server
+CMD ["sh", "-c", "gunicorn --workers 1 --threads 4 --timeout 120 --bind 0.0.0.0:${PORT} --chdir src traffic_routing.dashboard.server:app"]

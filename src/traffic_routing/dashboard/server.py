@@ -35,12 +35,24 @@ dist_dir = root_dir / "frontend" / "dist"
 app = Flask(__name__, static_folder=str(dist_dir) if dist_dir.exists() else None)
 
 
+@app.before_request
+def handle_preflight():
+    """Handle all CORS preflight OPTIONS requests immediately."""
+    if request.method == "OPTIONS":
+        response = app.make_default_options_response()
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers["Access-Control-Allow-Headers"] = "*"
+        response.headers["Access-Control-Allow-Methods"] = "GET,POST,PUT,DELETE,OPTIONS"
+        response.headers["Access-Control-Max-Age"] = "86400"
+        return response
+
+
 @app.after_request
 def add_cors_headers(response):
-    """Enable CORS for local React development server."""
+    """Enable CORS across all responses."""
     response.headers["Access-Control-Allow-Origin"] = "*"
-    response.headers["Access-Control-Allow-Headers"] = "Content-Type,Authorization"
-    response.headers["Access-Control-Allow-Methods"] = "GET,PUT,POST,DELETE,OPTIONS"
+    response.headers["Access-Control-Allow-Headers"] = "*"
+    response.headers["Access-Control-Allow-Methods"] = "GET,POST,PUT,DELETE,OPTIONS"
     return response
 
 
@@ -715,7 +727,7 @@ def serve_frontend(path):
 def run_server(host="0.0.0.0", port=5000, debug=False):
     """Run Flask HTTP server."""
     print(f"[*] Starting Traffic Routing Engine API on http://{host}:{port}")
-    app.run(host=host, port=port, debug=debug)
+    app.run(host=host, port=port, debug=debug, threaded=True)
 
 
 if __name__ == "__main__":

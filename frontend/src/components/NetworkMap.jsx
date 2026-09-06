@@ -105,7 +105,9 @@ export default function NetworkMap({
   };
 
   const handleWheel = (e) => {
-    e.preventDefault();
+    if (e.cancelable) {
+      e.preventDefault();
+    }
     const factor = e.deltaY < 0 ? 1.12 : 0.89;
     setZoom((prev) => Math.min(Math.max(prev * factor, 0.5), 5));
   };
