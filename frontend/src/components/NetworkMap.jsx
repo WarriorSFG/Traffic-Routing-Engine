@@ -16,6 +16,27 @@ export default function NetworkMap({
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [hoveredElement, setHoveredElement] = useState(null);
+  const [selectedEdge, setSelectedEdge] = useState(null);
+
+  const updateHover = (e, type, data) => {
+    if (!svgRef.current) return;
+    const rect = svgRef.current.getBoundingClientRect();
+    setHoveredElement({
+      type,
+      data,
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top
+    });
+  };
+
+  const tooltipPos = useMemo(() => {
+    if (!hoveredElement) return { left: 0, top: 0 };
+    let left = hoveredElement.x + 16;
+    let top = hoveredElement.y + 16;
+    if (left > 720) left = Math.max(10, hoveredElement.x - 240);
+    if (top > 480) top = Math.max(10, hoveredElement.y - 140);
+    return { left, top };
+  }, [hoveredElement]);
 
   const { edges = [], routes = [], customers = [], intersections = [], depot = null, bounds = null } = data || {};
 
@@ -200,39 +221,67 @@ export default function NetworkMap({
           </defs>
 
           <g transform={`translate(${pan.x}, ${pan.y}) scale(${zoom})`}>
-            {/* 1. Road Edges */}
+            {/* 1. Road Edges with Dual-Layer Hit Targets */}
             {edges.map((edge, idx) => {
               const p0 = project(edge.x0, edge.y0);
               const p1 = project(edge.x1, edge.y1);
               const isHighlight = isEdgeHighlighted(edge);
+              const isSelected = selectedEdge && (
+                (selectedEdge.u === edge.u && selectedEdge.v === edge.v) ||
+                (selectedEdge.u === edge.v && selectedEdge.v === edge.u)
+              );
               const color = isHighlight ? '#ef4444' : getRoadColor(edge);
-              const strokeWidth = isHighlight ? 5 : edge.is_closed ? 3 : edge.alpha > 3 ? 2.5 : edge.alpha > 1.5 ? 2.0 : 1.2;
-              const opacity = isHighlight ? 1 : edge.is_closed ? 0.9 : edge.alpha > 1.5 ? 0.85 : 0.45;
+              const strokeWidth = isSelected ? 4.5 : isHighlight ? 4.5 : edge.is_closed ? 3.0 : edge.alpha > 3 ? 2.8 : edge.alpha > 1.5 ? 2.0 : 1.3;
+              const opacity = isSelected ? 1 : isHighlight ? 1 : edge.is_closed ? 0.95 : edge.alpha > 1.5 ? 0.85 : 0.5;
 
               return (
-                <line
-                  key={`edge-${edge.u}-${edge.v}-${idx}`}
-                  x1={p0.x}
-                  y1={p0.y}
-                  x2={p1.x}
-                  y2={p1.y}
-                  stroke={color}
-                  strokeWidth={strokeWidth}
-                  strokeDasharray={edge.is_closed || isHighlight ? '5,5' : 'none'}
-                  strokeOpacity={opacity}
-                  className={isHighlight ? 'pulse-edge' : ''}
-                  style={{ cursor: 'pointer', transition: 'stroke 0.2s' }}
-                  onMouseEnter={(e) => {
-                    const rect = svgRef.current.getBoundingClientRect();
-                    setHoveredElement({
-                      type: 'edge',
-                      data: edge,
-                      x: e.clientX - rect.left,
-                      y: e.clientY - rect.top
-                    });
-                  }}
-                  onMouseLeave={() => setHoveredElement(null)}
-                />
+                <g key={`edge-group-${edge.u}-${edge.v}-${idx}`}>
+                  {/* Selection / Highlight Halo */}
+                  {(isSelected || isHighlight) && (
+                    <line
+                      x1={p0.x}
+                      y1={p0.y}
+                      x2={p1.x}
+                      y2={p1.y}
+                      stroke={isSelected ? '#38bdf8' : '#ef4444'}
+                      strokeWidth={10}
+                      strokeLinecap="round"
+                      opacity={0.45}
+                      style={{ pointerEvents: 'none' }}
+                    />
+                  )}
+                  {/* Visible Road Line */}
+                  <line
+                    x1={p0.x}
+                    y1={p0.y}
+                    x2={p1.x}
+                    y2={p1.y}
+                    stroke={isSelected ? '#38bdf8' : color}
+                    strokeWidth={strokeWidth}
+                    strokeDasharray={edge.is_closed || isHighlight ? '5,5' : 'none'}
+                    strokeOpacity={opacity}
+                    className={isHighlight ? 'pulse-edge' : ''}
+                    style={{ pointerEvents: 'none', transition: 'stroke 0.2s' }}
+                  />
+                  {/* Transparent Wide Hit-Stroke (16px) for effortless hover & click selection */}
+                  <line
+                    x1={p0.x}
+                    y1={p0.y}
+                    x2={p1.x}
+                    y2={p1.y}
+                    stroke="transparent"
+                    strokeWidth={16}
+                    strokeLinecap="round"
+                    style={{ cursor: 'pointer' }}
+                    onMouseEnter={(e) => updateHover(e, 'edge', edge)}
+                    onMouseMove={(e) => updateHover(e, 'edge', edge)}
+                    onMouseLeave={() => setHoveredElement(null)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedEdge(edge);
+                    }}
+                  />
+                </g>
               );
             })}
 
@@ -402,35 +451,31 @@ export default function NetworkMap({
             {/* 4. Customer Stops */}
             {customers.map((cust) => {
               const pt = project(cust.x, cust.y);
+              const r = customers.length > 70 ? 6.5 : customers.length > 35 ? 7.8 : 9;
+              const fSize = customers.length > 70 ? 7.2 : customers.length > 35 ? 8.2 : 9.5;
+              const yOffset = customers.length > 70 ? 2.5 : customers.length > 35 ? 3.0 : 3.5;
               return (
                 <g
                   key={`cust-${cust.node_id}`}
                   transform={`translate(${pt.x}, ${pt.y})`}
                   style={{ cursor: 'pointer' }}
-                  onMouseEnter={(e) => {
-                    const rect = svgRef.current.getBoundingClientRect();
-                    setHoveredElement({
-                      type: 'customer',
-                      data: cust,
-                      x: e.clientX - rect.left,
-                      y: e.clientY - rect.top
-                    });
-                  }}
+                  onMouseEnter={(e) => updateHover(e, 'customer', cust)}
+                  onMouseMove={(e) => updateHover(e, 'customer', cust)}
                   onMouseLeave={() => setHoveredElement(null)}
                 >
                   <circle
-                    r={9}
+                    r={r}
                     fill="#0f172a"
                     stroke="#38bdf8"
-                    strokeWidth={1.8}
+                    strokeWidth={r > 7 ? 1.8 : 1.3}
                     filter="drop-shadow(0 2px 4px rgba(0,0,0,0.5))"
                   />
                   <text
                     x={0}
-                    y={3.5}
+                    y={yOffset}
                     textAnchor="middle"
                     fill="#f8fafc"
-                    fontSize={9.5}
+                    fontSize={fSize}
                     fontWeight="700"
                     fontFamily="Inter, -apple-system, sans-serif"
                   >
@@ -448,15 +493,8 @@ export default function NetworkMap({
                   key="depot-node"
                   transform={`translate(${pt.x}, ${pt.y})`}
                   style={{ cursor: 'pointer' }}
-                  onMouseEnter={(e) => {
-                    const rect = svgRef.current.getBoundingClientRect();
-                    setHoveredElement({
-                      type: 'depot',
-                      data: depot,
-                      x: e.clientX - rect.left,
-                      y: e.clientY - rect.top
-                    });
-                  }}
+                  onMouseEnter={(e) => updateHover(e, 'depot', depot)}
+                  onMouseMove={(e) => updateHover(e, 'depot', depot)}
                   onMouseLeave={() => setHoveredElement(null)}
                 >
                   {/* Subtle pulsing ring */}
@@ -507,31 +545,95 @@ export default function NetworkMap({
           </button>
         </div>
 
-        {/* Hover Tooltip */}
+        {/* Pinned Road Link Inspector */}
+        {selectedEdge && (
+          <div className="pinned-edge-card">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: getRoadColor(selectedEdge) }} />
+                <strong style={{ fontSize: '0.82rem', color: 'var(--text-main)' }}>
+                  Selected Road Link ({selectedEdge.u} &harr; {selectedEdge.v})
+                </strong>
+              </div>
+              <button
+                className="btn-close-pinned"
+                onClick={() => setSelectedEdge(null)}
+                title="Close Inspector"
+              >
+                &times;
+              </button>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 12px', fontSize: '0.74rem' }}>
+              <div><span style={{ color: 'var(--text-muted)' }}>Status:</span> <strong style={{ color: getRoadColor(selectedEdge) }}>{selectedEdge.status || `${selectedEdge.alpha}x`}</strong></div>
+              <div><span style={{ color: 'var(--text-muted)' }}>Class:</span> <span style={{ color: selectedEdge.is_arterial ? '#38bdf8' : 'var(--text-secondary)' }}>{selectedEdge.is_arterial ? 'Arterial' : 'Residential'}</span></div>
+              <div><span style={{ color: 'var(--text-muted)' }}>Time:</span> <strong>{selectedEdge.dynamic_time_min ? `${selectedEdge.dynamic_time_min}m` : `${(selectedEdge.base_time_min * selectedEdge.alpha).toFixed(1)}m`}</strong> <span style={{ color: 'var(--text-muted)', fontSize: '0.68rem' }}>(base {selectedEdge.base_time_min?.toFixed(1)}m)</span></div>
+              <div><span style={{ color: 'var(--text-muted)' }}>Speed:</span> <strong>{selectedEdge.current_speed ? `${selectedEdge.current_speed} km/h` : `${(selectedEdge.speed_limit / Math.max(1, selectedEdge.alpha)).toFixed(1)} km/h`}</strong></div>
+              <div><span style={{ color: 'var(--text-muted)' }}>Distance:</span> <strong>{selectedEdge.distance_km?.toFixed(1)} km</strong></div>
+              <div><span style={{ color: 'var(--text-muted)' }}>Congestion:</span> <strong>{selectedEdge.alpha}x</strong></div>
+            </div>
+          </div>
+        )}
+
+        {/* Hover Tooltip with Rich Telemetrics */}
         {hoveredElement && (
           <div
             className="map-tooltip"
             style={{
-              left: Math.min(hoveredElement.x, 800),
-              top: Math.min(hoveredElement.y, 500)
+              left: tooltipPos.left,
+              top: tooltipPos.top
             }}
           >
-            {hoveredElement.type === 'edge' && (
-              <div>
-                <div style={{ fontWeight: 700, color: 'var(--color-primary)', marginBottom: 4 }}>
-                  Road Link ({hoveredElement.data.u} &harr; {hoveredElement.data.v})
-                </div>
-                <div>Congestion: <strong style={{ color: getRoadColor(hoveredElement.data) }}>{hoveredElement.data.alpha}x</strong></div>
-                <div>Base Time: {typeof hoveredElement.data.base_time_min === 'number' ? hoveredElement.data.base_time_min.toFixed(1) : '—'} mins</div>
-                <div>Distance: {hoveredElement.data.distance_km?.toFixed(1) || '—'} km</div>
-                {(hoveredElement.data.is_closed || hoveredElement.data.is_incident || isEdgeHighlighted(hoveredElement.data)) && (
-                  <div style={{ color: 'var(--color-danger)', fontWeight: 700, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
-                    <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: 'currentColor' }} />
-                    ⛔ Road Closed / Disrupted Link
+            {hoveredElement.type === 'edge' && (() => {
+              const e = hoveredElement.data;
+              const dynTime = e.dynamic_time_min ?? (e.base_time_min ? (e.base_time_min * e.alpha).toFixed(1) : null);
+              const dynSpeed = e.current_speed ?? (e.speed_limit ? (e.speed_limit / Math.max(1, e.alpha)).toFixed(1) : null);
+              return (
+                <div style={{ minWidth: 210 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                    <span style={{ fontWeight: 700, color: 'var(--color-primary)', fontSize: '0.82rem' }}>
+                      Road Link ({e.u} &harr; {e.v})
+                    </span>
+                    <span className="badge" style={{
+                      fontSize: '0.62rem',
+                      padding: '1px 6px',
+                      background: e.is_closed ? 'rgba(239,68,68,0.2)' : e.alpha > 3 ? 'rgba(248,113,113,0.2)' : e.alpha > 1.5 ? 'rgba(251,191,36,0.2)' : 'rgba(16,185,129,0.2)',
+                      color: getRoadColor(e)
+                    }}>
+                      {e.status || (e.is_closed ? 'Closed' : e.alpha > 3 ? 'Severe' : e.alpha > 1.5 ? 'Moderate' : 'Free Flow')}
+                    </span>
                   </div>
-                )}
-              </div>
-            )}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
+                    <span style={{ color: 'var(--text-muted)' }}>Congestion:</span>
+                    <strong style={{ color: getRoadColor(e) }}>{e.alpha}x</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
+                    <span style={{ color: 'var(--text-muted)' }}>Travel Time:</span>
+                    <span><strong>{dynTime ? `${dynTime}m` : '—'}</strong> <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>(base {e.base_time_min?.toFixed(1) || '—'}m)</span></span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
+                    <span style={{ color: 'var(--text-muted)' }}>Speed:</span>
+                    <span><strong>{dynSpeed ? `${dynSpeed} km/h` : '—'}</strong> <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>(limit {e.speed_limit} km/h)</span></span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
+                    <span style={{ color: 'var(--text-muted)' }}>Distance:</span>
+                    <span><strong>{e.distance_km?.toFixed(1) || '—'} km</strong></span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 3 }}>
+                    <span style={{ color: 'var(--text-muted)' }}>Class:</span>
+                    <span style={{ color: e.is_arterial ? '#38bdf8' : 'var(--text-secondary)' }}>{e.is_arterial ? 'Arterial Highway' : 'Residential Road'}</span>
+                  </div>
+                  {(e.is_closed || e.is_incident || isEdgeHighlighted(e)) && (
+                    <div style={{ color: 'var(--color-danger)', fontWeight: 700, marginTop: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: '50%', background: 'currentColor' }} />
+                      ⛔ Road Closed / Disrupted Link
+                    </div>
+                  )}
+                  <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: 5, borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: 3 }}>
+                    Click link to pin telemetry
+                  </div>
+                </div>
+              );
+            })()}
 
             {hoveredElement.type === 'customer' && (
               <div>
@@ -551,7 +653,7 @@ export default function NetworkMap({
                   Central Distribution Depot
                 </div>
                 <div>Operating Window: [{hoveredElement.data.time_window[0].toFixed(1)}h, {hoveredElement.data.time_window[1].toFixed(1)}h]</div>
-                <div>Fleet Starting & Return Point</div>
+                <div>Fleet Starting & Return Hub</div>
               </div>
             )}
           </div>

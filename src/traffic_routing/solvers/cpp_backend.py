@@ -5,10 +5,11 @@ from typing import List, Optional
 import numpy as np
 
 try:
-    import qpso_engine
-except ImportError:
-    # Attempt import from solvers package directory
+    # Prioritize module compiled inside solvers package directory
     from . import qpso_engine
+except ImportError:
+    # Fallback to root directory import
+    import qpso_engine
 
 from ..config import PenaltyConfig, SolverConfig
 from ..vrp_model import RouteEvaluation, SolutionEvaluation, VRPProblem
@@ -40,6 +41,8 @@ def _convert_penalties_to_cpp(config: PenaltyConfig, problem: VRPProblem) -> qps
     weights.lambda_tw = float(config.lambda_tw)
     weights.rho_early = float(config.rho_early)
     weights.rho_late = float(config.rho_late)
+    if hasattr(weights, "vehicle_cost"):
+        weights.vehicle_cost = float(getattr(config, "vehicle_cost", 0.5))
 
     if config.auto_scale:
         prob_cpp = _convert_problem_to_cpp(problem)
@@ -78,7 +81,8 @@ def _convert_cpp_result_to_py(res_cpp) -> SolverResult:
         route_structure_violations=int(sol_cpp.route_viol),
         is_feasible=bool(sol_cpp.is_feasible),
         unpenalized_cost=float(sol_cpp.total_time),
-        penalized_fitness=float(sol_cpp.penalized_fitness)
+        penalized_fitness=float(sol_cpp.penalized_fitness),
+        vehicle_cost=float(getattr(sol_cpp, "vehicle_cost", 0.0))
     )
 
     history = [

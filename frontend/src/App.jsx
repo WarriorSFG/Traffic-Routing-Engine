@@ -140,6 +140,40 @@ const VERIFIED_PRESETS = [
       maxIter: 120,
       seed: 7
     }
+  },
+  {
+    id: 'metro-50-stops',
+    title: 'Metro Scale (50 Stops)',
+    subtitle: '50-customer regional dispatch: 10 vehicles coordinate across dense rush-hour arterial corridors.',
+    badge: '50 Stops Scale',
+    badgeClass: 'badge-primary',
+    params: {
+      preset: 'Rush-Hour Bottleneck',
+      simClock: 8.0,
+      numCustomers: 50,
+      numVehicles: 10,
+      vehicleCap: 150.0,
+      swarmSize: 50,
+      maxIter: 150,
+      seed: 42
+    }
+  },
+  {
+    id: 'megacity-100-stops',
+    title: 'Mega-City Logistics (100 Stops)',
+    subtitle: 'Enterprise-grade 100-customer benchmark: 18 vehicles, multi-depot-scale delivery routing under dynamic traffic.',
+    badge: '100 Stops Scale',
+    badgeClass: 'badge-warning',
+    params: {
+      preset: 'Rush-Hour Bottleneck',
+      simClock: 8.0,
+      numCustomers: 100,
+      numVehicles: 18,
+      vehicleCap: 160.0,
+      swarmSize: 60,
+      maxIter: 200,
+      seed: 42
+    }
   }
 ];
 
@@ -147,18 +181,19 @@ export default function App() {
   // Page Navigation: 'dispatch' | 'compare' | 'reroute' | 'benchmark' | 'reference'
   const [activePage, setActivePage] = useState('dispatch');
 
-  // Selected Preset ID
-  const [selectedPresetId, setSelectedPresetId] = useState('clean-showdown');
+  // Selected Preset ID (Default to Rush-Hour Bottleneck Bypass)
+  const [selectedPresetId, setSelectedPresetId] = useState('rush-hour-bypass');
 
-  // Sidebar Controls State (Default to Clean Feasible Showdown preset)
-  const [preset, setPreset] = useState('Uniform Flow');
+  // Sidebar Controls State
+  const [preset, setPreset] = useState('Rush-Hour Bottleneck');
   const [simClock, setSimClock] = useState(8.0);
-  const [numCustomers, setNumCustomers] = useState(8);
-  const [numVehicles, setNumVehicles] = useState(3);
+  const [numCustomers, setNumCustomers] = useState(10);
+  const [numVehicles, setNumVehicles] = useState(4);
   const [vehicleCap, setVehicleCap] = useState(120.0);
   const [swarmSize, setSwarmSize] = useState(40);
-  const [maxIter, setMaxIter] = useState(100);
-  const [seed, setSeed] = useState(3);
+  const [maxIter, setMaxIter] = useState(120);
+  const [seed, setSeed] = useState(48);
+  const [vehicleCost, setVehicleCost] = useState(0.5);
 
   // Simulation Data State
   const [simulationData, setSimulationData] = useState(null);
@@ -178,7 +213,8 @@ export default function App() {
       vehicle_cap: vehicleCap,
       swarm_size: swarmSize,
       max_iter: typeof maxIter === 'number' && !isNaN(maxIter) && maxIter > 0 ? maxIter : 100,
-      seed: typeof seed === 'number' && !isNaN(seed) && seed > 0 ? seed : 42
+      seed: typeof seed === 'number' && !isNaN(seed) && seed > 0 ? seed : 42,
+      vehicle_cost: vehicleCost
     };
     try {
       const res = await fetch('/api/simulate', {
@@ -197,7 +233,7 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  }, [preset, simClock, numCustomers, numVehicles, vehicleCap, swarmSize, maxIter, seed]);
+  }, [preset, simClock, numCustomers, numVehicles, vehicleCap, swarmSize, maxIter, seed, vehicleCost]);
 
   // Load a pre-tested verified preset
   const handleSelectPreset = (presetItem) => {
@@ -210,6 +246,9 @@ export default function App() {
     setSwarmSize(presetItem.params.swarmSize);
     setMaxIter(presetItem.params.maxIter);
     setSeed(presetItem.params.seed);
+    if (presetItem.params.vehicleCost !== undefined) {
+      setVehicleCost(presetItem.params.vehicleCost);
+    }
 
     runSimulation({
       preset: presetItem.params.preset,
@@ -219,7 +258,8 @@ export default function App() {
       vehicle_cap: presetItem.params.vehicleCap,
       swarm_size: presetItem.params.swarmSize,
       max_iter: presetItem.params.maxIter,
-      seed: presetItem.params.seed
+      seed: presetItem.params.seed,
+      vehicle_cost: presetItem.params.vehicleCost !== undefined ? presetItem.params.vehicleCost : vehicleCost
     });
   };
 
@@ -227,8 +267,46 @@ export default function App() {
 
   // Initial solve on page load
   useEffect(() => {
-    runSimulation();
-  }, [runSimulation]);
+    runSimulation({
+      preset: 'Rush-Hour Bottleneck',
+      sim_clock: 8.0,
+      num_customers: 10,
+      num_vehicles: 4,
+      vehicle_cap: 120.0,
+      swarm_size: 40,
+      max_iter: 120,
+      seed: 48,
+      vehicle_cost: 0.5
+    });
+  }, []);
+
+  // Debounced re-run when time slider (simClock) is moved
+  const isInitialMount = React.useRef(true);
+  useEffect(() => {
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      return;
+    }
+    const timer = setTimeout(() => {
+      let targetPreset = preset;
+      if (preset === 'Uniform Flow') {
+        targetPreset = 'Rush-Hour Bottleneck';
+        setPreset('Rush-Hour Bottleneck');
+        setSelectedPresetId('rush-hour-bypass');
+      }
+      runSimulation({
+        preset: targetPreset,
+        sim_clock: simClock,
+        num_customers: numCustomers,
+        num_vehicles: numVehicles,
+        vehicle_cap: vehicleCap,
+        swarm_size: swarmSize,
+        max_iter: typeof maxIter === 'number' && !isNaN(maxIter) && maxIter > 0 ? maxIter : 100,
+        seed: typeof seed === 'number' && !isNaN(seed) && seed > 0 ? seed : 42
+      });
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [simClock]);
 
   const metrics = simulationData?.metrics;
   const isBookPage = activePage === 'reference';
@@ -392,14 +470,30 @@ export default function App() {
                   <div className="control-group">
                     <div className="control-label-row">
                       <label htmlFor="cust-slider" className="control-label">Customer Stops</label>
-                      <span className="control-value">{numCustomers}</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <input
+                          type="number"
+                          min="5"
+                          max="200"
+                          value={numCustomers}
+                          onChange={(e) => {
+                            setSelectedPresetId('custom');
+                            const val = parseInt(e.target.value, 10);
+                            if (!isNaN(val) && val >= 5) {
+                              setNumCustomers(val);
+                            }
+                          }}
+                          className="control-input"
+                          style={{ width: '60px', padding: '2px 6px', fontSize: '0.8rem', textAlign: 'center', fontFamily: 'var(--font-mono)' }}
+                        />
+                      </div>
                     </div>
                     <input
                       id="cust-slider"
                       type="range"
                       className="slider"
                       min="5"
-                      max="40"
+                      max="150"
                       step="1"
                       value={numCustomers}
                       onChange={(e) => {
@@ -407,19 +501,63 @@ export default function App() {
                         setNumCustomers(parseInt(e.target.value, 10));
                       }}
                     />
+                    {/* Quick Scale Jump Buttons */}
+                    <div style={{ display: 'flex', gap: 4, marginTop: 6, flexWrap: 'wrap' }}>
+                      {[10, 25, 50, 80, 100, 150].map((stops) => (
+                        <button
+                          key={`stop-quick-${stops}`}
+                          type="button"
+                          className="btn btn-ghost"
+                          style={{
+                            padding: '2px 7px',
+                            fontSize: '0.72rem',
+                            borderRadius: 'var(--radius-xs)',
+                            background: numCustomers === stops ? 'var(--primary-glow)' : 'var(--bg-card)',
+                            color: numCustomers === stops ? 'var(--primary-light)' : 'var(--text-muted)',
+                            border: numCustomers === stops ? '1px solid var(--primary-light)' : '1px solid var(--border-subtle)'
+                          }}
+                          onClick={() => {
+                            setSelectedPresetId('custom');
+                            setNumCustomers(stops);
+                            const neededVehicles = Math.max(Math.ceil((stops * 20) / vehicleCap), 1);
+                            if (numVehicles < neededVehicles) {
+                              setNumVehicles(neededVehicles);
+                            }
+                          }}
+                        >
+                          {stops}
+                        </button>
+                      ))}
+                    </div>
                   </div>
 
                   <div className="control-group">
                     <div className="control-label-row">
                       <label htmlFor="veh-slider" className="control-label">Fleet Vehicles</label>
-                      <span className="control-value">{numVehicles}</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <input
+                          type="number"
+                          min="1"
+                          max="40"
+                          value={numVehicles}
+                          onChange={(e) => {
+                            setSelectedPresetId('custom');
+                            const val = parseInt(e.target.value, 10);
+                            if (!isNaN(val) && val >= 1) {
+                              setNumVehicles(val);
+                            }
+                          }}
+                          className="control-input"
+                          style={{ width: '55px', padding: '2px 6px', fontSize: '0.8rem', textAlign: 'center', fontFamily: 'var(--font-mono)' }}
+                        />
+                      </div>
                     </div>
                     <input
                       id="veh-slider"
                       type="range"
                       className="slider"
                       min="1"
-                      max="16"
+                      max="40"
                       step="1"
                       value={numVehicles}
                       onChange={(e) => {
@@ -427,6 +565,41 @@ export default function App() {
                         setNumVehicles(parseInt(e.target.value, 10));
                       }}
                     />
+                    {numVehicles < Math.ceil((numCustomers * 20) / vehicleCap) ? (
+                      <div style={{ fontSize: '0.7rem', color: 'var(--color-warning)', marginTop: 4, lineHeight: 1.3, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span>⚠️ Under-capacity: &ge; {Math.ceil((numCustomers * 20) / vehicleCap)} vehicles needed.</span>
+                        <button
+                          type="button"
+                          className="btn btn-ghost"
+                          style={{
+                            padding: '1px 6px',
+                            fontSize: '0.68rem',
+                            color: 'var(--color-warning)',
+                            borderColor: 'var(--color-warning)'
+                          }}
+                          onClick={() => {
+                            setSelectedPresetId('custom');
+                            setNumVehicles(Math.ceil((numCustomers * 20) / vehicleCap));
+                          }}
+                        >
+                          Auto-fit
+                        </button>
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 4 }}>
+                        <button
+                          type="button"
+                          className="btn btn-ghost"
+                          style={{ padding: '1px 6px', fontSize: '0.68rem', color: 'var(--text-muted)' }}
+                          onClick={() => {
+                            setSelectedPresetId('custom');
+                            setNumVehicles(Math.max(1, Math.ceil((numCustomers * 20) / vehicleCap)));
+                          }}
+                        >
+                          Auto-fit ({Math.max(1, Math.ceil((numCustomers * 20) / vehicleCap))})
+                        </button>
+                      </div>
+                    )}
                   </div>
 
                   <div className="control-group">
@@ -439,7 +612,7 @@ export default function App() {
                       type="range"
                       className="slider"
                       min="50.0"
-                      max="400.0"
+                      max="1000.0"
                       step="10.0"
                       value={vehicleCap}
                       onChange={(e) => {
@@ -447,6 +620,29 @@ export default function App() {
                         setVehicleCap(parseFloat(e.target.value));
                       }}
                     />
+                  </div>
+
+                  <div className="control-group">
+                    <div className="control-label-row">
+                      <label htmlFor="vehcost-slider" className="control-label">Deployment Cost (C_veh)</label>
+                      <span className="control-value">{vehicleCost.toFixed(2)} h</span>
+                    </div>
+                    <input
+                      id="vehcost-slider"
+                      type="range"
+                      className="slider"
+                      min="0.0"
+                      max="5.0"
+                      step="0.25"
+                      value={vehicleCost}
+                      onChange={(e) => {
+                        setSelectedPresetId('custom');
+                        setVehicleCost(parseFloat(e.target.value));
+                      }}
+                    />
+                    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 4, lineHeight: 1.25 }}>
+                      Fixed dispatch cost per vehicle. Lower values encourage deploying more vehicles to reduce route duration and avoid late deliveries.
+                    </div>
                   </div>
                 </div>
 
@@ -467,7 +663,7 @@ export default function App() {
                       type="range"
                       className="slider"
                       min="10"
-                      max="100"
+                      max="200"
                       step="5"
                       value={swarmSize}
                       onChange={(e) => {

@@ -152,9 +152,13 @@ class FitnessEvaluator:
         # Check vehicle count constraint
         fleet_viol = max(0, len(route_evals) - self.problem.num_vehicles)
 
+        vehicle_cost = getattr(self.penalty_config, "vehicle_cost", 0.5)
+        dispatch_cost = float(len(route_evals) * vehicle_cost)
+
         # Full penalized fitness (§7.4)
         penalized_fitness = (
             total_time
+            + dispatch_cost
             + self.lambda_cap * total_cap_viol
             + self.lambda_route * (route_viol + fleet_viol)
             + self.lambda_tw * total_tw_viol
@@ -178,5 +182,6 @@ class FitnessEvaluator:
             route_structure_violations=route_viol + fleet_viol,
             is_feasible=is_feasible,
             unpenalized_cost=total_time,
-            penalized_fitness=penalized_fitness
+            penalized_fitness=penalized_fitness,
+            vehicle_cost=dispatch_cost
         )

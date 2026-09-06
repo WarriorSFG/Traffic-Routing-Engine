@@ -62,8 +62,11 @@ def test_fitness_evaluator(sample_problem):
 
 
 def test_python_cpp_fitness_consistency(sample_problem):
-    from traffic_routing.solvers.cpp_backend import _convert_penalties_to_cpp, _convert_problem_to_cpp
-    import qpso_engine
+    from traffic_routing.solvers.cpp_backend import (
+        _convert_penalties_to_cpp,
+        _convert_problem_to_cpp,
+        qpso_engine,
+    )
 
     penalties = PenaltyConfig()
     evaluator_py = FitnessEvaluator(sample_problem, penalties)

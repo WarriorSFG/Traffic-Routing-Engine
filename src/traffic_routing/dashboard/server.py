@@ -68,7 +68,8 @@ def _format_solver_solution(
     problem,
     sim_clock,
     preset_str,
-    algo_name="QPSO"
+    algo_name="QPSO",
+    vehicle_cost=0.5
 ):
     """Formats vehicle routes and metrics for a solver result."""
     routes_data = []
@@ -88,6 +89,28 @@ def _format_solver_solution(
             r_eval = sol_res.solution.route_evaluations[k] if k < len(sol_res.solution.route_evaluations) else None
             is_r_feasible = (r_eval.capacity_violation <= 1e-6 and r_eval.time_window_penalty <= 1e-6) if r_eval else True
             arrival_ts = [float(t) for t in r_eval.arrival_times] if r_eval and hasattr(r_eval, "arrival_times") else []
+
+            stop_details = []
+            if r_eval and hasattr(r_eval, "arrival_times"):
+                for s_idx, stop_num in enumerate(route):
+                    arr = r_eval.arrival_times[s_idx] if s_idx < len(r_eval.arrival_times) else 0.0
+                    s_info = problem.stops_info[stop_num] if stop_num < len(problem.stops_info) else None
+                    tw = list(s_info.time_window) if s_info else [6.0, 18.0]
+                    demand = float(s_info.demand) if s_info else 0.0
+                    is_late = arr > tw[1] + 1e-4
+                    is_early = arr < tw[0] - 1e-4
+                    status = "Late Delay" if is_late else ("Early (Wait)" if is_early else "On-Time")
+                    stop_details.append({
+                        "stop_index": int(stop_num),
+                        "node_id": int(cost_matrix.stops[stop_num]) if stop_num < len(cost_matrix.stops) else int(stop_num),
+                        "arrival_time": round(float(arr), 2),
+                        "time_window": [round(tw[0], 2), round(tw[1], 2)],
+                        "demand": round(demand, 1),
+                        "is_late": bool(is_late),
+                        "is_early": bool(is_early),
+                        "status": status
+                    })
+
             routes_data.append({
                 "vehicle_id": k + 1,
                 "color": palette[k % len(palette)],
@@ -100,6 +123,7 @@ def _format_solver_solution(
                 "capacity_violation": float(r_eval.capacity_violation) if r_eval else 0.0,
                 "time_window_penalty": float(r_eval.time_window_penalty) if r_eval else 0.0,
                 "arrival_times": arrival_ts,
+                "stop_details": stop_details,
                 "is_feasible": is_r_feasible
             })
 
@@ -113,13 +137,19 @@ def _format_solver_solution(
         and tw_viol <= 1e-6
     )
 
+    route_times = [float(r.total_time) for r in sol_res.solution.route_evaluations] if sol_res.solution and sol_res.solution.route_evaluations else []
+    makespan = max(route_times) if route_times else 0.0
+
     metrics = {
         "algorithm": algo_name,
         "total_time": round(float(sol_res.solution.total_time), 2),
+        "makespan": round(float(makespan), 2),
         "total_distance": round(float(sol_res.solution.total_distance), 1),
         "vehicles_utilized": num_routes,
         "total_vehicles": int(num_vehicles),
         "vehicle_capacity": float(vehicle_cap),
+        "vehicle_cost": round(float(vehicle_cost), 2),
+        "total_dispatch_cost": round(float(num_routes * vehicle_cost), 2),
         "compute_time_ms": round(float(sol_res.compute_time_ms), 2),
         "is_feasible": is_sol_feasible,
         "fitness": round(float(sol_res.solution.penalized_fitness), 3),
@@ -146,12 +176,14 @@ def _build_simulation_state(
     vehicle_cap: float = 100.0,
     swarm_size: int = 40,
     max_iter: int = 120,
-    seed: int = 42
+    seed: int = 42,
+    vehicle_cost: float = 0.5
 ) -> Dict[str, Any]:
     """Builds and caches full network simulation and multi-solver optimization state."""
-    # 1. Graph Generation (§2)
+    # 1. Graph Generation (§2) - Scale network nodes with customer stops to ensure healthy intersection mesh
+    total_nodes = max(int(num_customers * 1.35), num_customers + 15, 25)
     net_config = NetworkConfig(
-        num_nodes=max(num_customers + 10, 25),
+        num_nodes=total_nodes,
         num_customers=num_customers,
         seed=seed
     )
@@ -167,13 +199,15 @@ def _build_simulation_state(
     preset = preset_map.get(preset_str, TrafficPreset.RUSH_HOUR)
     congestion_config = CongestionConfig(
         preset=preset,
-        rush_hour_alpha_max=3.5,
-        rush_hour_t_start=7.0,
+        rush_hour_alpha_max=3.8,
+        rush_hour_lambda=12.0,
+        rush_hour_t_start=6.0,
         rush_hour_t_end=10.0,
+        rush_hour_hotspot_count=2,
         seed=seed
     )
     if preset == TrafficPreset.INCIDENT:
-        congestion_config.incident_alpha = 8.0
+        congestion_config.incident_alpha = 10.0
 
     congestion_engine = DynamicCongestionEngine(network, congestion_config)
     congestion_state = congestion_engine.evaluate(t=sim_clock)
@@ -184,7 +218,7 @@ def _build_simulation_state(
 
     vrp_config = VRPConfig(vehicle_capacity=vehicle_cap, num_vehicles=num_vehicles)
     problem = create_vrp_problem(cost_matrix, vrp_config, seed=seed)
-    penalty_config = PenaltyConfig()
+    penalty_config = PenaltyConfig(vehicle_cost=vehicle_cost)
 
     solver_cfg = SolverConfig(swarm_size=swarm_size, max_iterations=max_iter, seed=seed)
 
@@ -216,14 +250,26 @@ def _build_simulation_state(
         "vehicle_cap": vehicle_cap,
         "swarm_size": swarm_size,
         "max_iter": max_iter,
-        "seed": seed
+        "seed": seed,
+        "vehicle_cost": vehicle_cost
     }
 
-    # Format Road Edges
+    # Format Road Edges with comprehensive telemetrics
     edges_list = []
     for (u, v), edge in network.edges.items():
         alpha = float(congestion_state.multipliers.get((u, v), 1.0))
         is_closed = bool((u, v) in congestion_state.closed_edges)
+        dynamic_time_min = float(edge.base_time * 60 * alpha)
+        current_speed = float(edge.speed_limit / max(1.0, alpha))
+        if is_closed:
+            status = "Road Closed / Blocked"
+        elif alpha > 3.0:
+            status = "Severe Bottleneck"
+        elif alpha > 1.5:
+            status = "Moderate Traffic"
+        else:
+            status = "Free Flow"
+
         edges_list.append({
             "u": int(u),
             "v": int(v),
@@ -231,18 +277,26 @@ def _build_simulation_state(
             "y0": float(coords[u, 1]),
             "x1": float(coords[v, 0]),
             "y1": float(coords[v, 1]),
-            "base_time_min": float(edge.base_time * 60),
-            "distance_km": float(edge.distance),
-            "speed_limit": float(edge.speed_limit),
+            "base_time_min": round(float(edge.base_time * 60), 1),
+            "dynamic_time_min": round(dynamic_time_min, 1),
+            "distance_km": round(float(edge.distance), 1),
+            "speed_limit": round(float(edge.speed_limit), 1),
+            "current_speed": round(current_speed, 1),
             "is_arterial": bool(edge.is_arterial),
             "alpha": round(alpha, 2),
-            "is_closed": is_closed
+            "is_closed": is_closed,
+            "status": status
         })
 
-    palette = ["#38bdf8", "#a855f7", "#ec4899", "#f97316", "#eab308", "#06b6d4"]
-    sol_gnn_data = _format_solver_solution(res_gnn, cost_matrix, coords, palette, num_vehicles, vehicle_cap, network, problem, sim_clock, preset_str, "GNN Baseline")
-    sol_pso_data = _format_solver_solution(res_pso, cost_matrix, coords, palette, num_vehicles, vehicle_cap, network, problem, sim_clock, preset_str, "Classical PSO")
-    sol_qpso_data = _format_solver_solution(sol_res, cost_matrix, coords, palette, num_vehicles, vehicle_cap, network, problem, sim_clock, preset_str, "Quantum-Inspired PSO (QPSO)")
+    palette = [
+        "#38bdf8", "#a855f7", "#ec4899", "#f97316", "#eab308", "#06b6d4",
+        "#10b981", "#6366f1", "#f43f5e", "#14b8a6", "#8b5cf6", "#d946ef",
+        "#84cc16", "#0ea5e9", "#f59e0b", "#4ade80", "#22d3ee", "#c084fc",
+        "#fb7185", "#34d399", "#818cf8", "#fb923c", "#a3e635", "#2dd4bf"
+    ]
+    sol_gnn_data = _format_solver_solution(res_gnn, cost_matrix, coords, palette, num_vehicles, vehicle_cap, network, problem, sim_clock, preset_str, "GNN Baseline", vehicle_cost)
+    sol_pso_data = _format_solver_solution(res_pso, cost_matrix, coords, palette, num_vehicles, vehicle_cap, network, problem, sim_clock, preset_str, "Classical PSO", vehicle_cost)
+    sol_qpso_data = _format_solver_solution(sol_res, cost_matrix, coords, palette, num_vehicles, vehicle_cap, network, problem, sim_clock, preset_str, "Quantum-Inspired PSO (QPSO)", vehicle_cost)
 
     solutions = {
         "gnn": sol_gnn_data,
@@ -373,6 +427,7 @@ def simulate():
     swarm_size = int(data.get("swarm_size", 40))
     max_iter = int(data.get("max_iter", 120))
     seed = int(data.get("seed", 42))
+    vehicle_cost = float(data.get("vehicle_cost", 0.5))
 
     try:
         res = _build_simulation_state(
@@ -383,7 +438,8 @@ def simulate():
             vehicle_cap=vehicle_cap,
             swarm_size=swarm_size,
             max_iter=max_iter,
-            seed=seed
+            seed=seed,
+            vehicle_cost=vehicle_cost
         )
         return jsonify({"success": True, "data": res})
     except Exception as e:
@@ -492,7 +548,21 @@ def reroute():
         inc_graph = inc_engine.create_weighted_graph(inc_state)
         inc_cost_matrix = matrix_calc.compute(inc_graph, sim_time=8.1)
 
-        inc_problem = create_vrp_problem(inc_cost_matrix, vrp_config, seed=params["seed"])
+        # Preserve existing problem's stops_info (demands and time windows) so customers remain consistent
+        prior_problem = _cache.get("problem")
+        if prior_problem and prior_problem.stops_info:
+            stops_info = prior_problem.stops_info
+        else:
+            stops_info = create_vrp_problem(inc_cost_matrix, vrp_config, seed=params["seed"]).stops_info
+
+        from traffic_routing.vrp_model import VRPProblem
+        inc_problem = VRPProblem(
+            num_customers=len(stops_info) - 1,
+            num_vehicles=vrp_config.num_vehicles,
+            capacity=vrp_config.vehicle_capacity,
+            stops_info=stops_info,
+            cost_matrix=inc_cost_matrix
+        )
 
         # Extract continuous warm-start keys from prior solution (§10.2, §12.2)
         warm_keys = [0.5] * inc_problem.num_customers
@@ -560,11 +630,22 @@ def reroute():
                 "stops": [int(s) for s in route]
             })
 
-        # Incident Edges Info
+        # Incident Edges Info with comprehensive telemetrics
         incident_edges_list = []
         for (u, v), edge in network.edges.items():
             alpha = float(inc_state.multipliers.get((u, v), 1.0))
             is_closed = bool((u, v) in inc_state.closed_edges)
+            dynamic_time_min = float(edge.base_time * 60 * alpha)
+            current_speed = float(edge.speed_limit / max(1.0, alpha))
+            if is_closed or (u, v) == disrupted_edge or (v, u) == disrupted_edge:
+                status = "Road Closed / Blocked"
+            elif alpha > 3.0:
+                status = "Severe Bottleneck"
+            elif alpha > 1.5:
+                status = "Moderate Traffic"
+            else:
+                status = "Free Flow"
+
             incident_edges_list.append({
                 "u": int(u),
                 "v": int(v),
@@ -572,12 +653,15 @@ def reroute():
                 "y0": float(coords[u, 1]),
                 "x1": float(coords[v, 0]),
                 "y1": float(coords[v, 1]),
-                "base_time_min": float(edge.base_time * 60),
-                "distance_km": float(edge.distance),
-                "speed_limit": float(edge.speed_limit),
+                "base_time_min": round(float(edge.base_time * 60), 1),
+                "dynamic_time_min": round(dynamic_time_min, 1),
+                "distance_km": round(float(edge.distance), 1),
+                "speed_limit": round(float(edge.speed_limit), 1),
+                "current_speed": round(current_speed, 1),
                 "is_arterial": bool(edge.is_arterial),
                 "alpha": round(alpha, 2),
-                "is_closed": is_closed
+                "is_closed": is_closed or (u, v) == disrupted_edge or (v, u) == disrupted_edge,
+                "status": status
             })
 
         return jsonify({
@@ -627,10 +711,10 @@ def serve_frontend(path):
     })
 
 
-def run_server(port=5000, debug=False):
+def run_server(host="0.0.0.0", port=5000, debug=False):
     """Run Flask HTTP server."""
-    print(f"[*] Starting Traffic Routing Engine API on http://127.0.0.1:{port}")
-    app.run(host="127.0.0.1", port=port, debug=debug)
+    print(f"[*] Starting Traffic Routing Engine API on http://{host}:{port}")
+    app.run(host=host, port=port, debug=debug)
 
 
 if __name__ == "__main__":

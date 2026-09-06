@@ -92,8 +92,12 @@ def build():
         print("[BUILD SUCCESS] Compiled qpso_engine.pyd successfully!")
 
     # Also copy to root directory or sys.path for convenient importing
-    shutil.copy(pyd_target, root_dir / "qpso_engine.pyd")
-    print(f"[BUILD] Copied module to {root_dir / 'qpso_engine.pyd'}")
+    try:
+        shutil.copy(pyd_target, root_dir / "qpso_engine.pyd")
+        print(f"[BUILD] Copied module to {root_dir / 'qpso_engine.pyd'}")
+    except PermissionError:
+        print(f"[BUILD WARNING] Could not overwrite root qpso_engine.pyd (locked by active process).")
+        print(f"[BUILD SUCCESS] Using fresh binary at {pyd_target}")
 
 
 if __name__ == "__main__":

@@ -50,7 +50,12 @@ export default function DispatchStudio({
 
   const routes = simulationData?.routes || [];
   const metrics = simulationData?.metrics;
-  const numVehicles = metrics?.total_vehicles || routes.length || 4;
+  const activeRoutesCount = routes.length;
+  const targetVehicles = metrics?.total_vehicles || activeRoutesCount;
+  const isFleetExceeded = activeRoutesCount > targetVehicles;
+  const totalParcelDemand = Math.round(routes.reduce((sum, r) => sum + (r.total_load || 0), 0));
+  const vehicleCap = metrics?.vehicle_capacity || 120.0;
+  const totalFleetCap = Math.round(targetVehicles * vehicleCap);
 
   const filteredRoutes = selectedVehicle === 'all'
     ? routes
@@ -118,6 +123,25 @@ export default function DispatchStudio({
       <div className="dispatch-workspace-grid">
         {/* Left Column: Interactive Map */}
         <div className="dispatch-map-wrapper">
+          {/* Fleet Shortage Notice if demand exceeds configured vehicles */}
+          {isFleetExceeded && (
+            <div className="fleet-shortage-alert">
+              <span style={{ fontSize: '1.25rem', lineHeight: 1 }}>⚠️</span>
+              <div>
+                <div style={{ fontWeight: 600, color: 'var(--color-warning)', marginBottom: 2 }}>
+                  Fleet Allocation Exceeded ({activeRoutesCount} active routes vs. {targetVehicles} vehicle target)
+                </div>
+                <div>
+                  Delivering to all <strong>{metrics.num_customers} customer stops</strong> requires <strong>{totalParcelDemand} kg</strong> of capacity.
+                  Since each vehicle has a max capacity of <strong>{vehicleCap} kg</strong>, the solver dispatched <strong>{activeRoutesCount} vehicles</strong> to avoid breaking vehicle capacity limits.
+                </div>
+                <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: 4 }}>
+                  💡 <strong>To make feasible:</strong> Increase <em>Fleet Vehicles</em> to &ge; {activeRoutesCount} or <em>Vehicle Capacity (Q)</em> to &ge; {Math.ceil(totalParcelDemand / targetVehicles)} kg in the sidebar.
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Map Controls Toolbar */}
           <div className="map-toolbar">
             <div className="toolbar-left">
@@ -127,15 +151,17 @@ export default function DispatchStudio({
                   className={`pill-btn ${selectedVehicle === 'all' ? 'active' : ''}`}
                   onClick={() => setSelectedVehicle('all')}
                 >
-                  All Vehicles ({numVehicles})
+                  All Active ({activeRoutesCount})
                 </button>
-                {Array.from({ length: numVehicles }, (_, i) => i + 1).map((vId) => (
+                {routes.map((rt) => (
                   <button
-                    key={`disp-v-${vId}`}
-                    className={`pill-btn ${selectedVehicle === String(vId) ? 'active' : ''}`}
-                    onClick={() => setSelectedVehicle(String(vId))}
+                    key={`disp-v-${rt.vehicle_id}`}
+                    className={`pill-btn ${selectedVehicle === String(rt.vehicle_id) ? 'active' : ''}`}
+                    onClick={() => setSelectedVehicle(String(rt.vehicle_id))}
+                    style={{ borderColor: selectedVehicle === String(rt.vehicle_id) ? rt.color : undefined }}
                   >
-                    Vehicle {vId}
+                    <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: rt.color, marginRight: 5 }} />
+                    Vehicle {rt.vehicle_id}
                   </button>
                 ))}
               </div>
@@ -167,13 +193,20 @@ export default function DispatchStudio({
                 <div>
                   <span style={{ fontWeight: 600, fontSize: '0.85rem', color: 'var(--text-main)' }}>Time-of-Day Traffic Simulation</span>
                   <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginLeft: 8 }}>
-                    Morning Rush-Hour: 7:00 AM &ndash; 10:00 AM (Peak at 8:00 AM, &alpha; = 3.5&times;)
+                    Morning Rush-Hour: 6:00 AM &ndash; 10:00 AM (Peak at 8:00 AM, &alpha; = 3.8&times;)
                   </span>
                 </div>
               </div>
-              <span className="clock-badge">
-                {simClock.toFixed(1)}:00 hrs
-              </span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                {simClock >= 6.0 && simClock <= 10.0 && (
+                  <span className="badge badge-warning" style={{ fontSize: '0.65rem', padding: '2px 6px' }}>
+                    {simClock === 8.0 ? '🔥 Peak Rush Hour' : '⚠️ Rush-Hour Active'}
+                  </span>
+                )}
+                <span className="clock-badge">
+                  {Math.floor(simClock)}:{Math.round((simClock % 1) * 60) === 0 ? '00' : Math.round((simClock % 1) * 60)} {simClock >= 12 ? 'PM' : 'AM'}
+                </span>
+              </div>
             </div>
 
             <div className="clock-slider-track">
@@ -191,6 +224,7 @@ export default function DispatchStudio({
               <div className="clock-ticks">
                 <span>6:00 AM (Depot Opens)</span>
                 <span style={{ color: 'var(--color-danger)', fontWeight: 600 }}>8:00 AM (Peak Rush Hour)</span>
+                <span>10:00 AM (Rush Clears)</span>
                 <span>12:00 PM (Midday)</span>
                 <span>18:00 PM (Depot Closes)</span>
               </div>
@@ -204,6 +238,7 @@ export default function DispatchStudio({
             routes={routes}
             customers={simulationData?.customers}
             depot={simulationData?.depot}
+            vehicleCap={metrics?.vehicle_capacity}
           />
         </div>
       </div>

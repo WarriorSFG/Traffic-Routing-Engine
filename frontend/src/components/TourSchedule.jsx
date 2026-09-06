@@ -30,17 +30,34 @@ const icons = {
   )
 };
 
+function formatHour(h) {
+  if (h == null || isNaN(h)) return '--';
+  const hours = Math.floor(h);
+  const minutes = Math.round((h - hours) * 60);
+  const period = hours >= 12 && hours < 24 ? 'PM' : 'AM';
+  const displayHour = hours % 12 === 0 ? 12 : hours % 12;
+  return `${displayHour}:${minutes.toString().padStart(2, '0')} ${period}`;
+}
+
 export default function TourSchedule({ routes = [], vehicleCap = 100.0 }) {
   const [isOpen, setIsOpen] = useState(true);
+  const [expandedRoutes, setExpandedRoutes] = useState({});
 
   if (!routes || routes.length === 0) return null;
+
+  const toggleRouteTimetable = (vId) => {
+    setExpandedRoutes((prev) => ({
+      ...prev,
+      [vId]: !prev[vId]
+    }));
+  };
 
   return (
     <div className="drawer">
       <div className="drawer-header" onClick={() => setIsOpen(!isOpen)}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{ color: 'var(--color-primary)', display: 'flex' }}>{icons.clipboard}</span>
-          <span style={{ fontWeight: 600, color: 'var(--text-main)', fontSize: '0.88rem' }}>Vehicle Tour Schedules</span>
+          <span style={{ fontWeight: 600, color: 'var(--text-main)', fontSize: '0.88rem' }}>Vehicle Tour Schedules & Timetables</span>
           <span className="badge" style={{ fontSize: '0.7rem' }}>{routes.length} Active</span>
         </div>
         <span style={{ color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.78rem' }}>
@@ -55,7 +72,13 @@ export default function TourSchedule({ routes = [], vehicleCap = 100.0 }) {
       {isOpen && (
         <div className="drawer-content">
           {routes.map((rt) => {
-            const loadPct = Math.min(Math.round((rt.total_load / (vehicleCap || 1)) * 100), 100);
+            const cap = Number(vehicleCap) > 0 ? Number(vehicleCap) : 100.0;
+            const rawPct = Math.round((rt.total_load / cap) * 100);
+            const loadPct = Math.min(rawPct, 100);
+            const isOverloaded = rt.total_load > cap + 1e-4;
+            const hasStopDetails = Array.isArray(rt.stop_details) && rt.stop_details.length > 0;
+            const isExpanded = !!expandedRoutes[rt.vehicle_id];
+
             return (
               <div
                 key={`tour-${rt.vehicle_id}`}
@@ -66,7 +89,7 @@ export default function TourSchedule({ routes = [], vehicleCap = 100.0 }) {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <strong style={{ color: rt.color }}>Vehicle {rt.vehicle_id}</strong>
                     <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                      ({rt.stops.length - 2} stops)
+                      ({Math.max(0, rt.stops.length - 2)} stops)
                     </span>
                   </div>
                   <div style={{
@@ -87,7 +110,7 @@ export default function TourSchedule({ routes = [], vehicleCap = 100.0 }) {
                 <div className="tour-path-badge">
                   Path: {rt.stops.map((s, sIdx) => (
                     <span key={`p-${sIdx}`}>
-                      {s === 0 ? 'Hub' : s}
+                      {s === 0 ? 'Hub' : `S${s}`}
                       {sIdx < rt.stops.length - 1 && ' \u2192 '}
                     </span>
                   ))}
@@ -95,7 +118,7 @@ export default function TourSchedule({ routes = [], vehicleCap = 100.0 }) {
 
                 <div className="tour-stats">
                   <div>
-                    <strong>Load:</strong> {rt.total_load.toFixed(1)} / {vehicleCap.toFixed(1)} parcels ({loadPct}%)
+                    <strong>Load:</strong> {rt.total_load.toFixed(1)} / {cap.toFixed(1)} kg ({rawPct}%)
                     <div style={{
                       width: '120px',
                       height: '4px',
@@ -107,7 +130,7 @@ export default function TourSchedule({ routes = [], vehicleCap = 100.0 }) {
                       <div style={{
                         width: `${loadPct}%`,
                         height: '100%',
-                        background: loadPct > 100 ? 'var(--color-danger)' : rt.color,
+                        background: isOverloaded ? 'var(--color-danger)' : rt.color,
                         borderRadius: '2px'
                       }} />
                     </div>
@@ -119,6 +142,82 @@ export default function TourSchedule({ routes = [], vehicleCap = 100.0 }) {
                     <strong>Distance:</strong> {rt.total_distance.toFixed(1)} km
                   </div>
                 </div>
+
+                {hasStopDetails && (
+                  <div style={{ marginTop: 6 }}>
+                    <button
+                      className="btn-tour-timetable-toggle"
+                      onClick={() => toggleRouteTimetable(rt.vehicle_id)}
+                    >
+                      <span>{isExpanded ? 'Hide Stop Timetable' : `View Stop Timetable (${rt.stop_details.length} points)`}</span>
+                      <span style={{ display: 'flex', width: 12, height: 12 }}>
+                        {isExpanded ? icons.chevronUp : icons.chevronDown}
+                      </span>
+                    </button>
+
+                    {isExpanded && (
+                      <div className="tour-stop-table-wrapper">
+                        <table className="tour-stop-table">
+                          <thead>
+                            <tr>
+                              <th>Point</th>
+                              <th>Arrival</th>
+                              <th>Time Window</th>
+                              <th>Demand</th>
+                              <th>Status</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {rt.stop_details.map((st, sIdx) => {
+                              const isHub = st.stop_index === 0;
+                              let statusBadgeClass = 'status-pill-ontime';
+                              if (st.is_late) statusBadgeClass = 'status-pill-late';
+                              else if (st.is_early) statusBadgeClass = 'status-pill-early';
+
+                              return (
+                                <tr key={`st-${rt.vehicle_id}-${sIdx}`}>
+                                  <td>
+                                    <span className={`point-code ${isHub ? 'point-hub' : 'point-cust'}`}>
+                                      {isHub ? 'Depot Hub' : `Stop #${st.stop_index}`}
+                                    </span>
+                                    {!isHub && (
+                                      <span className="point-sub">Node {st.node_id}</span>
+                                    )}
+                                  </td>
+                                  <td>
+                                    <span className="time-val-primary">{formatHour(st.arrival_time)}</span>
+                                    <span className="time-val-sub">({st.arrival_time.toFixed(2)}h)</span>
+                                  </td>
+                                  <td>
+                                    {isHub ? (
+                                      <span className="tw-text">Depot Hours (6:00 - 18:00)</span>
+                                    ) : (
+                                      <span className="tw-text">
+                                        {formatHour(st.time_window[0])} &ndash; {formatHour(st.time_window[1])}
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td>
+                                    {st.demand > 0 ? (
+                                      <span className="demand-val">{st.demand.toFixed(1)} kg</span>
+                                    ) : (
+                                      <span style={{ color: 'var(--text-muted)' }}>&mdash;</span>
+                                    )}
+                                  </td>
+                                  <td>
+                                    <span className={`status-pill ${statusBadgeClass}`}>
+                                      {st.status}
+                                    </span>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             );
           })}

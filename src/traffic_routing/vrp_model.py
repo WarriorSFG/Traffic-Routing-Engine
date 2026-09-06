@@ -74,6 +74,7 @@ class SolutionEvaluation:
     is_feasible: bool
     unpenalized_cost: float         # Z_time
     penalized_fitness: float        # Total penalized fitness F
+    vehicle_cost: float = 0.0       # Fixed deployment overhead for active fleet vehicles
 
 
 def create_vrp_problem(

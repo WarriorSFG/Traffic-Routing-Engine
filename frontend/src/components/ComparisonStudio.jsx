@@ -108,7 +108,11 @@ export default function ComparisonStudio({ simulationData }) {
   const baselineFilteredRoutes = filterRoutes(baselineSol.routes || []);
   const qpsoFilteredRoutes = filterRoutes(qpsoSol.routes || []);
 
-  const numVehicles = qpsoMetrics.total_vehicles || (qpsoSol.routes ? qpsoSol.routes.length : 4);
+  const numVehicles = Math.max(
+    baselineSol.routes ? baselineSol.routes.length : 0,
+    qpsoSol.routes ? qpsoSol.routes.length : 0,
+    qpsoMetrics.total_vehicles || 1
+  );
 
   return (
     <div className="comparison-studio">

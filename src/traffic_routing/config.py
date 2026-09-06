@@ -29,16 +29,16 @@ class NetworkConfig:
 @dataclass
 class CongestionConfig:
     """Dynamic congestion engine configuration (Chapter 3)."""
-    preset: TrafficPreset = TrafficPreset.UNIFORM
+    preset: TrafficPreset = TrafficPreset.RUSH_HOUR
     seed: Optional[int] = 42
     # Preset 1: Uniform flow
     uniform_eps_max: float = 0.1
     # Preset 2: Rush-Hour Bottleneck
-    rush_hour_alpha_max: float = 3.5
-    rush_hour_lambda: float = 15.0       # Spatial decay length-scale
-    rush_hour_t_start: float = 7.0       # e.g., 7:00 AM
-    rush_hour_t_end: float = 10.0        # e.g., 10:00 AM
-    rush_hour_hotspot_count: int = 3
+    rush_hour_alpha_max: float = 3.8
+    rush_hour_lambda: float = 12.0      # Spatial decay length-scale (12 km corridor radius)
+    rush_hour_t_start: float = 6.0       # 6:00 AM (depot opens, morning buildup begins)
+    rush_hour_t_end: float = 10.0        # 10:00 AM (morning rush hour clears)
+    rush_hour_hotspot_count: int = 2     # Focused bottleneck intersections
     # Preset 3: Incident Disruption
     incident_alpha: float = 10.0         # Severe slowdown multiplier
     incident_hard_closure: bool = False  # If True, edge weight = infinity
@@ -67,6 +67,7 @@ class PenaltyConfig:
     lambda_tw: float = 500.0
     rho_early: float = 0.0
     rho_late: float = 50.0   # Late arrival is penalized heavier than waiting early
+    vehicle_cost: float = 0.5 # Fixed operational/dispatch cost per vehicle deployed (hours equivalent)
     auto_scale: bool = True   # Automatically scale lambdas to 10 * max(C) * |S|
 
 

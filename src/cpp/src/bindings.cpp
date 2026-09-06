@@ -73,6 +73,7 @@ PYBIND11_MODULE(qpso_engine, m) {
         .def_readwrite("lambda_tw", &PenaltyWeights::lambda_tw)
         .def_readwrite("rho_early", &PenaltyWeights::rho_early)
         .def_readwrite("rho_late", &PenaltyWeights::rho_late)
+        .def_readwrite("vehicle_cost", &PenaltyWeights::vehicle_cost)
         .def("auto_scale", &PenaltyWeights::auto_scale);
 
     py::class_<RouteInfo>(m, "RouteInfo")
@@ -95,6 +96,7 @@ PYBIND11_MODULE(qpso_engine, m) {
         .def_readonly("total_cap_viol", &Solution::total_cap_viol)
         .def_readonly("total_tw_viol", &Solution::total_tw_viol)
         .def_readonly("route_viol", &Solution::route_viol)
+        .def_readonly("vehicle_cost", &Solution::vehicle_cost)
         .def_readonly("penalized_fitness", &Solution::penalized_fitness)
         .def_readonly("is_feasible", &Solution::is_feasible);
 

@@ -34,14 +34,25 @@ class DynamicCongestionEngine:
         self._hotspot_distances: Dict[int, Dict[int, float]] = self._precompute_hotspot_distances()
 
     def _identify_hotspots(self, count: int) -> List[int]:
-        """Identifies top high-degree intersections as rush-hour bottleneck hotspots."""
-        # Consider all nodes except depot if possible, or high degree intersections
-        degrees = dict(self.network.graph.degree())
-        # Sort by degree descending
-        sorted_nodes = sorted(degrees.keys(), key=lambda n: degrees[n], reverse=True)
-        # Prefer intersections/nodes with highest degree
-        hotspots = sorted_nodes[:max(1, count)]
-        return hotspots
+        """Identifies top high-density arterial intersections as rush-hour bottleneck hotspots (§2.1, §3.3).
+        
+        Strictly selects from intersection nodes V_int (never depot or customer demand points).
+        """
+        candidate_nodes = list(self.network.intersection_ids)
+        if not candidate_nodes:
+            # Fallback if no intersections defined: all non-depot nodes
+            candidate_nodes = [n for n in self.network.graph.nodes() if n != self.network.depot_id]
+
+        # Prioritize intersections with high arterial connectivity, then total degree
+        def score_node(n: int) -> Tuple[int, int]:
+            arterial_edges = sum(
+                1 for _, v, d in self.network.graph.edges(n, data=True) if d.get("is_arterial", False)
+            )
+            total_deg = self.network.graph.degree(n)
+            return (arterial_edges, total_deg)
+
+        sorted_candidates = sorted(candidate_nodes, key=score_node, reverse=True)
+        return sorted_candidates[:max(1, count)]
 
     def _precompute_hotspot_distances(self) -> Dict[int, Dict[int, float]]:
         """Precomputes base shortest path distances from all nodes to each hotspot."""
@@ -106,17 +117,17 @@ class DynamicCongestionEngine:
 
             elif preset == TrafficPreset.RUSH_HOUR:
                 # Preset 2: Rush-Hour Bottleneck (§3.3)
-                # Compute delta_ij = min_h (dist_G(i, h) + dist_G(j, h)) / 2
+                # Compute delta_ij = min_h min(dist_G(i, h), dist_G(j, h))
+                # For an edge incident to a bottleneck hotspot, delta_ij = 0 (peak bottleneck congestion)
                 delta_candidates = []
                 for h in self._hotspots:
                     d_i = self._hotspot_distances[h].get(u, 1e6)
                     d_j = self._hotspot_distances[h].get(v, 1e6)
-                    delta_candidates.append((d_i + d_j) / 2.0)
+                    delta_candidates.append(min(d_i, d_j))
                 delta_ij = min(delta_candidates) if delta_candidates else 0.0
 
-                alpha = 1.0 + (self.config.rush_hour_alpha_max - 1.0) * math.exp(
-                    -delta_ij / self.config.rush_hour_lambda
-                ) * rush_sigma
+                decay = math.exp(-delta_ij / self.config.rush_hour_lambda)
+                alpha = 1.0 + (self.config.rush_hour_alpha_max - 1.0) * decay * rush_sigma
 
             elif preset == TrafficPreset.INCIDENT:
                 # Preset 3: Incident Disruption (§3.4)

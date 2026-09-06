@@ -26,7 +26,7 @@ public:
         unsigned int seed = 42
     ) : prob_(prob),
         weights_(weights),
-        decoder_(prob),
+        decoder_(prob, weights.vehicle_cost),
         evaluator_(prob, weights),
         swarm_size_(swarm_size),
         max_iter_(max_iter),
@@ -50,43 +50,8 @@ public:
         std::vector<double> G(D);
         double gbest_fit = std::numeric_limits<double>::infinity();
 
-        // ── Bug Fix 1: GNN-Seeded Initialization ──
-        // Run GNN internally and encode its solution as particle 0.
-        // This ensures QPSO starts no worse than the GNN baseline.
-        GNNSolver gnn_solver(prob_, weights_);
-        SolverResult gnn_res = gnn_solver.solve();
-
-        // Extract customer visitation order from GNN routes
-        std::vector<int> gnn_sequence;
-        for (const auto& route : gnn_res.best_solution.routes) {
-            for (int stop : route) {
-                if (stop != 0) {
-                    gnn_sequence.push_back(stop);
-                }
-            }
-        }
-
-        // Encode GNN sequence as random keys
-        std::vector<double> gnn_keys = decoder_.encode(gnn_sequence);
-
-        // 1. Swarm Initialization (§11.6 Step 1)
-        // Particle 0 = GNN solution
-        X[0] = gnn_keys;
-        P[0] = gnn_keys;
-
-        // Particles 1..4 = small perturbations of GNN (neighborhood exploration)
-        for (int i = 1; i < std::min(swarm_size_, 5); ++i) {
-            for (int j = 0; j < D; ++j) {
-                double noise = (dist01(rng) - 0.5) * 0.08;
-                X[i][j] = gnn_keys[j] + noise;
-                // Modular wrap into [0, 1]
-                X[i][j] = X[i][j] - std::floor(X[i][j]);
-                P[i][j] = X[i][j];
-            }
-        }
-
-        // Remaining particles = random initialization
-        for (int i = 5; i < swarm_size_; ++i) {
+        // 1. Swarm Initialization (§11.6 Step 1) - Fair random start matching Classical PSO
+        for (int i = 0; i < swarm_size_; ++i) {
             for (int j = 0; j < D; ++j) {
                 X[i][j] = dist01(rng);
                 P[i][j] = X[i][j];

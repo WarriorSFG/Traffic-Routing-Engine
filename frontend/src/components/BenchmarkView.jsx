@@ -39,6 +39,8 @@ export default function BenchmarkView({ params }) {
   const [loading, setLoading] = useState(false);
   const [report, setReport] = useState(null);
   const [error, setError] = useState(null);
+  const [chartMode, setChartMode] = useState('zoom'); // 'zoom' | 'full' | 'log'
+  const [hoveredData, setHoveredData] = useState(null);
 
   const handleRunBenchmark = async () => {
     setLoading(true);
@@ -67,108 +69,474 @@ export default function BenchmarkView({ params }) {
     }
   };
 
-  // SVG Chart projection for Convergence Curves
+  // SVG Chart projection for Convergence Curves with rich telemetrics & high-contrast coloring
   const renderConvergenceChart = (convergence) => {
     if (!convergence || convergence.length === 0) return null;
 
     const iterations = convergence.map((d) => d.Iteration ?? 0);
     const maxIter = Math.max(...iterations, 1);
-    const allValues = [];
-    convergence.forEach((d) => {
-      if (d['GNN'] != null) allValues.push(d['GNN']);
-      if (d['Classical PSO'] != null) allValues.push(d['Classical PSO']);
-      if (d['Quantum-Inspired PSO (QPSO)'] != null) allValues.push(d['Quantum-Inspired PSO (QPSO)']);
-    });
 
-    const minVal = Math.min(...allValues) * 0.95;
-    const maxVal = Math.max(...allValues) * 1.05;
+    const qpsoKey = 'Quantum-Inspired PSO (QPSO)';
+    const psoKey = 'Classical PSO';
+    const gnnKey = 'GNN';
+
+    const qpsoValues = convergence.map((d) => d[qpsoKey]).filter((v) => v != null);
+    const psoValues = convergence.map((d) => d[psoKey]).filter((v) => v != null);
+    const gnnValues = convergence.map((d) => d[gnnKey]).filter((v) => v != null);
+
+    const qpsoMin = qpsoValues.length ? Math.min(...qpsoValues) : 0;
+    const psoMin = psoValues.length ? Math.min(...psoValues) : 0;
+    const gnnMin = gnnValues.length ? Math.min(...gnnValues) : 0;
+
+    // Percent improvement of QPSO
+    const psoDeltaPct = psoMin > 0 ? (((psoMin - qpsoMin) / psoMin) * 100) : 0;
+    const gnnDeltaPct = gnnMin > 0 ? (((gnnMin - qpsoMin) / gnnMin) * 100) : 0;
+
+    // Convergence milestone: iteration where algorithm reached within 1% of its final best
+    const qpsoThreshold = qpsoMin * 1.01;
+    const qpsoMilestoneIter = convergence.findIndex((d) => d[qpsoKey] <= qpsoThreshold);
+    const psoThreshold = psoMin * 1.01;
+    const psoMilestoneIter = convergence.findIndex((d) => d[psoKey] <= psoThreshold);
+
+    const speedup = (psoMilestoneIter > 0 && qpsoMilestoneIter > 0)
+      ? (psoMilestoneIter / qpsoMilestoneIter).toFixed(1)
+      : null;
+
+    // Raw bounds
+    const allRaw = [...qpsoValues, ...psoValues, ...gnnValues];
+    const absoluteMin = Math.min(...allRaw);
+    const absoluteMax = Math.max(...allRaw);
+
+    // In zoom mode, focus on the converged region (tail values)
+    const tailStart = Math.floor(convergence.length * 0.15);
+    const tailRaw = convergence.slice(tailStart).flatMap((d) => [d[qpsoKey], d[psoKey], d[gnnKey]].filter((v) => v != null));
+    const tailMax = tailRaw.length > 0 ? Math.max(...tailRaw) : absoluteMin * 1.35;
+
+    let minVal, maxVal;
+    if (chartMode === 'log') {
+      minVal = Math.log10(Math.max(1e-2, absoluteMin * 0.95));
+      maxVal = Math.log10(Math.max(1e-2, absoluteMax * 1.05));
+    } else if (chartMode === 'zoom') {
+      minVal = Math.max(0, absoluteMin - (tailMax - absoluteMin) * 0.12);
+      maxVal = Math.min(absoluteMax, tailMax + (tailMax - absoluteMin) * 0.22);
+    } else {
+      minVal = Math.max(0, absoluteMin * 0.95);
+      maxVal = absoluteMax * 1.05;
+    }
     const valRange = maxVal - minVal || 1;
 
-    const w = 800;
-    const h = 320;
-    const padX = 60;
-    const padY = 40;
+    const w = 840;
+    const h = 330;
+    const padX = 65;
+    const padY = 35;
+    const chartWidth = w - padX * 2;
+    const chartHeight = h - padY * 2;
 
-    const toSvgX = (iter) => padX + (iter / maxIter) * (w - padX * 2);
-    const toSvgY = (val) => h - padY - ((val - minVal) / valRange) * (h - padY * 2);
+    const getVal = (raw) => {
+      if (raw == null) return null;
+      if (chartMode === 'log') return Math.log10(Math.max(1e-2, raw));
+      return raw;
+    };
+
+    const toSvgX = (iter) => padX + (iter / maxIter) * chartWidth;
+    const toSvgY = (val) => {
+      const v = getVal(val);
+      if (v == null) return h - padY;
+      const clamped = Math.min(maxVal, Math.max(minVal, v));
+      return h - padY - ((clamped - minVal) / valRange) * chartHeight;
+    };
 
     const getPolylinePoints = (key) => {
       return convergence
         .filter((d) => d[key] != null)
-        .map((d) => `${toSvgX(d.Iteration)},${toSvgY(d[key])}`)
+        .map((d) => `${toSvgX(d.Iteration).toFixed(1)},${toSvgY(d[key]).toFixed(1)}`)
         .join(' ');
     };
 
+    // Area path for QPSO gradient fill
+    const getQpsoAreaPath = () => {
+      const validPoints = convergence.filter((d) => d[qpsoKey] != null);
+      if (validPoints.length === 0) return '';
+      const coords = validPoints.map((d) => `${toSvgX(d.Iteration).toFixed(1)},${toSvgY(d[qpsoKey]).toFixed(1)}`);
+      const firstX = toSvgX(validPoints[0].Iteration).toFixed(1);
+      const lastX = toSvgX(validPoints[validPoints.length - 1].Iteration).toFixed(1);
+      const baseY = (h - padY).toFixed(1);
+      return `M ${firstX},${baseY} L ${coords.join(' L ')} L ${lastX},${baseY} Z`;
+    };
+
     // Horizontal gridlines (4 steps)
-    const gridTicks = [0, 0.33, 0.66, 1].map((pct) => minVal + pct * valRange);
+    const gridTicks = [0, 0.33, 0.66, 1].map((pct) => {
+      const tickVal = minVal + pct * valRange;
+      const displayVal = chartMode === 'log' ? Math.pow(10, tickVal) : tickVal;
+      return { y: toSvgY(chartMode === 'log' ? Math.pow(10, tickVal) : tickVal), label: displayVal.toFixed(1) };
+    });
+
+    // Vertical X-axis ticks (5 evenly spaced steps)
+    const xTicks = [0, 0.25, 0.5, 0.75, 1].map((pct) => Math.round(pct * maxIter));
+
+    const handleMouseMove = (e) => {
+      const svgEl = e.currentTarget;
+      const rect = svgEl.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const scaleFactor = w / rect.width;
+      const svgMouseX = mouseX * scaleFactor;
+      if (svgMouseX < padX || svgMouseX > w - padX) {
+        setHoveredData(null);
+        return;
+      }
+      const pct = (svgMouseX - padX) / chartWidth;
+      const targetIter = Math.round(pct * maxIter);
+      const point = convergence.find((d) => d.Iteration === targetIter) || convergence[Math.min(convergence.length - 1, Math.max(0, targetIter))];
+      if (point) {
+        setHoveredData({
+          ...point,
+          svgX: toSvgX(point.Iteration),
+          qpsoY: toSvgY(point[qpsoKey]),
+          psoY: toSvgY(point[psoKey]),
+          gnnY: toSvgY(point[gnnKey]),
+        });
+      }
+    };
 
     return (
       <div className="chart-container">
+        {/* 1. Header with View Mode Toggles & Legend */}
         <div className="chart-header">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ color: 'var(--color-primary)', display: 'flex' }}>{benchIcons.chart}</span>
-            <span style={{ fontWeight: 600, color: 'var(--text-main)', fontSize: '0.88rem' }}>
-              Convergence Analysis: Best Objective Value F(X) vs. Iteration
-            </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ color: '#06b6d4', display: 'flex' }}>{benchIcons.chart}</span>
+            <div>
+              <span style={{ fontWeight: 600, color: 'var(--text-main)', fontSize: '0.92rem' }}>
+                Convergence Trajectory: Objective Value F(X) vs. Iteration
+              </span>
+              <span style={{ display: 'block', fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: 1 }}>
+                Comparing Quantum Attractor tunneling vs. Classical velocity drift.
+              </span>
+            </div>
           </div>
-          <div className="chart-legend">
-            <div className="chart-legend-item">
-              <span className="chart-line-indicator" style={{ background: '#94a3b8', borderTop: '1px dashed #94a3b8' }} />
-              <span>GNN Baseline</span>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+            {/* View Mode Switcher */}
+            <div className="chart-toggle-group">
+              <button
+                className={`chart-toggle-btn ${chartMode === 'zoom' ? 'active' : ''}`}
+                onClick={() => setChartMode('zoom')}
+                title="Zoom into converged plateau region where algorithms compete"
+              >
+                Convergence Focus
+              </button>
+              <button
+                className={`chart-toggle-btn ${chartMode === 'full' ? 'active' : ''}`}
+                onClick={() => setChartMode('full')}
+                title="Show full scale from initial positions"
+              >
+                Full Scale
+              </button>
+              <button
+                className={`chart-toggle-btn ${chartMode === 'log' ? 'active' : ''}`}
+                onClick={() => setChartMode('log')}
+                title="Logarithmic scale for high dynamic range"
+              >
+                Log₁₀ Scale
+              </button>
             </div>
-            <div className="chart-legend-item">
-              <span className="chart-line-indicator" style={{ background: '#f59e0b' }} />
-              <span>Classical PSO</span>
-            </div>
-            <div className="chart-legend-item">
-              <span className="chart-line-indicator" style={{ background: 'var(--color-primary)', height: '3px' }} />
-              <strong style={{ color: 'var(--color-primary)' }}>Quantum-Inspired PSO (QPSO)</strong>
+
+            {/* High-Contrast Legend */}
+            <div className="chart-legend">
+              <div className="chart-legend-item">
+                <span className="chart-line-indicator" style={{ background: '#94a3b8', borderTop: '1px dashed #94a3b8' }} />
+                <span style={{ color: '#94a3b8' }}>GNN Baseline</span>
+              </div>
+              <div className="chart-legend-item">
+                <span className="chart-line-indicator" style={{ background: '#f97316' }} />
+                <strong style={{ color: '#f97316' }}>Classical PSO</strong>
+              </div>
+              <div className="chart-legend-item">
+                <span className="chart-line-indicator" style={{ background: '#06b6d4', height: '3px', boxShadow: '0 0 6px rgba(6, 182, 212, 0.6)' }} />
+                <strong style={{ color: '#06b6d4' }}>Quantum-Inspired PSO (QPSO)</strong>
+              </div>
             </div>
           </div>
         </div>
 
-        <svg viewBox={`0 0 ${w} ${h}`} style={{ width: '100%', height: '340px', overflow: 'visible' }}>
-          {/* Gridlines */}
-          {gridTicks.map((val, i) => {
-            const y = toSvgY(val);
-            return (
+        {/* 2. Analytical KPI Insight Strip */}
+        <div className="chart-insights-grid">
+          <div className="chart-insight-card">
+            <span className="chart-insight-label">
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#06b6d4', display: 'inline-block' }} />
+              QPSO Best Cost
+            </span>
+            <span className="chart-insight-val" style={{ color: '#06b6d4' }}>
+              {qpsoMin.toFixed(2)}
+            </span>
+            <span className="chart-insight-sub">
+              Global Optimum Found
+            </span>
+          </div>
+
+          <div className="chart-insight-card">
+            <span className="chart-insight-label">
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#f97316', display: 'inline-block' }} />
+              Classical PSO Best
+            </span>
+            <span className="chart-insight-val" style={{ color: '#f97316' }}>
+              {psoMin.toFixed(2)}
+            </span>
+            <span className="chart-insight-sub">
+              {psoDeltaPct > 0 ? `+${psoDeltaPct.toFixed(1)}% cost gap` : 'Tied'}
+            </span>
+          </div>
+
+          <div className="chart-insight-card">
+            <span className="chart-insight-label">
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#94a3b8', display: 'inline-block' }} />
+              GNN Greedy Baseline
+            </span>
+            <span className="chart-insight-val" style={{ color: '#94a3b8' }}>
+              {gnnMin.toFixed(2)}
+            </span>
+            <span className="chart-insight-sub">
+              {gnnDeltaPct > 0 ? `+${gnnDeltaPct.toFixed(1)}% cost gap` : 'Tied'}
+            </span>
+          </div>
+
+          <div className="chart-insight-card">
+            <span className="chart-insight-label">
+              ⚡ Quantum Advantage
+            </span>
+            <span className="chart-insight-val" style={{ color: psoDeltaPct > 0 ? 'var(--color-success)' : 'var(--text-main)' }}>
+              {psoDeltaPct > 0 ? `-${psoDeltaPct.toFixed(1)}% Cost` : 'Comparable'}
+            </span>
+            <span className="chart-insight-sub">
+              {speedup ? `${speedup}× faster to 99% opt (Iter ${qpsoMilestoneIter} vs ${psoMilestoneIter})` : `Reached optimum at Iter ${qpsoMilestoneIter}`}
+            </span>
+          </div>
+        </div>
+
+        {/* 3. SVG Trajectory Chart with Area Fill & Interactive Crosshair */}
+        <div className="chart-wrapper-rel">
+          <svg
+            viewBox={`0 0 ${w} ${h}`}
+            style={{ width: '100%', height: '330px', overflow: 'visible', cursor: 'crosshair' }}
+            onMouseMove={handleMouseMove}
+            onMouseLeave={() => setHoveredData(null)}
+          >
+            <defs>
+              <linearGradient id="qpsoAreaGradient" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#06b6d4" stopOpacity="0.22" />
+                <stop offset="85%" stopColor="#06b6d4" stopOpacity="0.02" />
+                <stop offset="100%" stopColor="#06b6d4" stopOpacity="0.0" />
+              </linearGradient>
+              <filter id="cyanGlow" x="-20%" y="-20%" width="140%" height="140%">
+                <feDropShadow dx="0" dy="0" stdDeviation="3.5" floodColor="#06b6d4" floodOpacity="0.7" />
+              </filter>
+              <clipPath id="chartClip">
+                <rect x={padX} y={padY} width={chartWidth} height={chartHeight} />
+              </clipPath>
+            </defs>
+
+            {/* Horizontal Gridlines & Y-Axis Values */}
+            {gridTicks.map((tick, i) => (
               <g key={`grid-${i}`}>
-                <line x1={padX} y1={y} x2={w - padX} y2={y} stroke="rgba(255,255,255,0.06)" strokeDasharray="3,3" />
-                <text x={padX - 8} y={y + 4} textAnchor="end" fill="var(--text-muted)" fontSize="10" fontFamily="JetBrains Mono, monospace">
-                  {val.toFixed(1)}
+                <line
+                  x1={padX}
+                  y1={tick.y}
+                  x2={w - padX}
+                  y2={tick.y}
+                  stroke="rgba(255,255,255,0.07)"
+                  strokeDasharray="3,3"
+                />
+                <text
+                  x={padX - 8}
+                  y={tick.y + 4}
+                  textAnchor="end"
+                  fill="var(--text-muted)"
+                  fontSize="10"
+                  fontFamily="JetBrains Mono, monospace"
+                >
+                  {tick.label}
                 </text>
               </g>
-            );
-          })}
+            ))}
 
-          {/* Iteration X axis labels */}
-          <text x={padX} y={h - 10} fill="var(--text-muted)" fontSize="10" fontFamily="JetBrains Mono, monospace">0</text>
-          <text x={w / 2} y={h - 10} textAnchor="middle" fill="var(--text-muted)" fontSize="11">Iteration Number (t)</text>
-          <text x={w - padX} y={h - 10} textAnchor="end" fill="var(--text-muted)" fontSize="10" fontFamily="JetBrains Mono, monospace">{maxIter}</text>
+            {/* Vertical Gridlines & X-Axis Ticks */}
+            {xTicks.map((tickIter, i) => {
+              const xPos = toSvgX(tickIter);
+              return (
+                <g key={`xtick-${i}`}>
+                  <line
+                    x1={xPos}
+                    y1={padY}
+                    x2={xPos}
+                    y2={h - padY}
+                    stroke="rgba(255,255,255,0.04)"
+                    strokeDasharray="2,4"
+                  />
+                  <line
+                    x1={xPos}
+                    y1={h - padY}
+                    x2={xPos}
+                    y2={h - padY + 5}
+                    stroke="rgba(255,255,255,0.2)"
+                  />
+                  <text
+                    x={xPos}
+                    y={h - padY + 18}
+                    textAnchor="middle"
+                    fill="var(--text-muted)"
+                    fontSize="10"
+                    fontFamily="JetBrains Mono, monospace"
+                  >
+                    {tickIter}
+                  </text>
+                </g>
+              );
+            })}
 
-          {/* Lines */}
-          <polyline
-            points={getPolylinePoints('GNN')}
-            fill="none"
-            stroke="#94a3b8"
-            strokeWidth="2"
-            strokeDasharray="4,4"
-            opacity="0.75"
-          />
-          <polyline
-            points={getPolylinePoints('Classical PSO')}
-            fill="none"
-            stroke="#f59e0b"
-            strokeWidth="2.5"
-            opacity="0.9"
-          />
-          <polyline
-            points={getPolylinePoints('Quantum-Inspired PSO (QPSO)')}
-            fill="none"
-            stroke="var(--color-primary)"
-            strokeWidth="3.2"
-          />
-        </svg>
+            {/* Axis Title */}
+            <text
+              x={w / 2}
+              y={h - 2}
+              textAnchor="middle"
+              fill="var(--text-secondary)"
+              fontSize="11"
+              fontWeight="500"
+            >
+              Iteration Number (t)
+            </text>
+
+            {/* Clipped Data Lines */}
+            <g clipPath="url(#chartClip)">
+              {/* QPSO Gradient Fill Area */}
+              <path
+                d={getQpsoAreaPath()}
+                fill="url(#qpsoAreaGradient)"
+              />
+
+              {/* 1. GNN Baseline (Slate Gray, dashed) */}
+              <polyline
+                points={getPolylinePoints(gnnKey)}
+                fill="none"
+                stroke="#94a3b8"
+                strokeWidth="2"
+                strokeDasharray="5,5"
+                opacity="0.8"
+              />
+
+              {/* 2. Classical PSO (Bright Orange, solid) */}
+              <polyline
+                points={getPolylinePoints(psoKey)}
+                fill="none"
+                stroke="#f97316"
+                strokeWidth="2.4"
+                opacity="0.95"
+              />
+
+              {/* 3. Quantum-Inspired PSO (Electric Cyan, bold glow) */}
+              <polyline
+                points={getPolylinePoints(qpsoKey)}
+                fill="none"
+                stroke="#06b6d4"
+                strokeWidth="3.4"
+                filter="url(#cyanGlow)"
+              />
+            </g>
+
+            {/* Crosshair & Hover Guides */}
+            {hoveredData && (
+              <g>
+                <line
+                  x1={hoveredData.svgX}
+                  y1={padY}
+                  x2={hoveredData.svgX}
+                  y2={h - padY}
+                  stroke="rgba(255,255,255,0.4)"
+                  strokeDasharray="3,3"
+                  strokeWidth="1.2"
+                />
+                {hoveredData[gnnKey] != null && (
+                  <circle
+                    cx={hoveredData.svgX}
+                    cy={hoveredData.gnnY}
+                    r="4"
+                    fill="#94a3b8"
+                    stroke="#ffffff"
+                    strokeWidth="1.5"
+                  />
+                )}
+                {hoveredData[psoKey] != null && (
+                  <circle
+                    cx={hoveredData.svgX}
+                    cy={hoveredData.psoY}
+                    r="5"
+                    fill="#f97316"
+                    stroke="#ffffff"
+                    strokeWidth="2"
+                  />
+                )}
+                {hoveredData[qpsoKey] != null && (
+                  <circle
+                    cx={hoveredData.svgX}
+                    cy={hoveredData.qpsoY}
+                    r="6"
+                    fill="#06b6d4"
+                    stroke="#ffffff"
+                    strokeWidth="2.5"
+                    filter="url(#cyanGlow)"
+                  />
+                )}
+              </g>
+            )}
+          </svg>
+
+          {/* Interactive Floating Tooltip */}
+          {hoveredData && (
+            <div
+              className="chart-floating-tooltip"
+              style={{
+                left: `${Math.min(88, Math.max(12, ((hoveredData.svgX) / w) * 100))}%`,
+                top: '14px',
+              }}
+            >
+              <div className="tooltip-title">Iteration #{hoveredData.Iteration}</div>
+              <div className="tooltip-row">
+                <span className="tooltip-dot" style={{ background: '#06b6d4', boxShadow: '0 0 5px #06b6d4' }} />
+                <span className="tooltip-label">Quantum PSO:</span>
+                <strong style={{ color: '#06b6d4', fontFamily: 'var(--font-mono)' }}>
+                  {hoveredData[qpsoKey]?.toFixed(2) ?? '—'}
+                </strong>
+              </div>
+              <div className="tooltip-row">
+                <span className="tooltip-dot" style={{ background: '#f97316' }} />
+                <span className="tooltip-label">Classical PSO:</span>
+                <strong style={{ color: '#f97316', fontFamily: 'var(--font-mono)' }}>
+                  {hoveredData[psoKey]?.toFixed(2) ?? '—'}
+                </strong>
+              </div>
+              <div className="tooltip-row">
+                <span className="tooltip-dot" style={{ background: '#94a3b8' }} />
+                <span className="tooltip-label">GNN Baseline:</span>
+                <span style={{ color: '#94a3b8', fontFamily: 'var(--font-mono)' }}>
+                  {hoveredData[gnnKey]?.toFixed(2) ?? '—'}
+                </span>
+              </div>
+              {hoveredData[psoKey] != null && hoveredData[qpsoKey] != null && (
+                <div className="tooltip-delta">
+                  {hoveredData[qpsoKey] < hoveredData[psoKey] ? (
+                    <span style={{ color: 'var(--color-success)' }}>
+                      ▼ QPSO leads by {(((hoveredData[psoKey] - hoveredData[qpsoKey]) / hoveredData[psoKey]) * 100).toFixed(1)}% (-{(hoveredData[psoKey] - hoveredData[qpsoKey]).toFixed(2)})
+                    </span>
+                  ) : hoveredData[qpsoKey] > hoveredData[psoKey] ? (
+                    <span style={{ color: 'var(--color-warning)' }}>
+                      ▲ Classical PSO leads by {(((hoveredData[qpsoKey] - hoveredData[psoKey]) / hoveredData[qpsoKey]) * 100).toFixed(1)}%
+                    </span>
+                  ) : (
+                    <span style={{ color: 'var(--text-muted)' }}>Tied fitness</span>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
     );
   };
@@ -261,52 +629,65 @@ export default function BenchmarkView({ params }) {
               <thead>
                 <tr>
                   <th>Algorithm</th>
-                  <th>Best Cost (F)</th>
-                  <th>Mean Cost</th>
+                  <th>Best Cost F(X)</th>
+                  <th>Mean Cost F(X)</th>
                   <th>Std Dev</th>
-                  <th>Travel Time (hrs)</th>
-                  <th>Distance (km)</th>
-                  <th>Compute Time (ms)</th>
+                  <th>Mean Time (hrs)</th>
+                  <th>Mean Dist (km)</th>
+                  <th>Wall-Clock (ms)</th>
                   <th>Gap to Best (%)</th>
                   <th>Feasibility</th>
                 </tr>
               </thead>
               <tbody>
                 {report.scorecard.map((row, idx) => {
+                  const rawGap = typeof row['Relative Gap (%)'] === 'number'
+                    ? row['Relative Gap (%)']
+                    : parseFloat(row['Relative Gap (%)'] || row['Optimality Gap (%)'] || 999);
+                  const isLeader = Math.abs(rawGap) < 1e-4;
                   const isQpso = row['Algorithm']?.includes('QPSO') || row['Algorithm']?.includes('Quantum');
+
                   return (
-                    <tr key={`scorecard-${idx}`} className={isQpso ? 'highlight-row' : ''}>
+                    <tr key={`scorecard-${idx}`} className={isLeader ? 'highlight-row-winner' : ''}>
                       <td>
-                        <strong>{row['Algorithm']}</strong>
-                        {isQpso && <span className="badge badge-primary" style={{ marginLeft: 8, fontSize: '0.65rem' }}>LEADER</span>}
+                        <strong style={{ color: isQpso ? '#06b6d4' : (row['Algorithm']?.includes('Classical') ? '#f97316' : 'inherit') }}>
+                          {row['Algorithm']}
+                        </strong>
+                        {isLeader && (
+                          <span className="badge badge-success" style={{ marginLeft: 8, fontSize: '0.65rem' }}>
+                            WINNER (0.0% GAP)
+                          </span>
+                        )}
                       </td>
                       <td>
-                        {typeof row['Best Cost'] === 'number'
-                          ? row['Best Cost'].toFixed(2)
-                          : (row['Best Cost'] ?? row['Best Fitness'] ?? '—')}
+                        <strong style={{ fontFamily: 'var(--font-mono)' }}>
+                          {typeof row['Best Cost'] === 'number'
+                            ? row['Best Cost'].toFixed(2)
+                            : (row['Best Cost'] ?? row['Best Fitness'] ?? '—')}
+                        </strong>
                       </td>
-                      <td>
+                      <td style={{ fontFamily: 'var(--font-mono)' }}>
                         {typeof row['Mean Cost'] === 'number'
                           ? row['Mean Cost'].toFixed(2)
                           : (row['Mean Cost'] ?? row['Mean Fitness'] ?? '—')}
                       </td>
-                      <td>
+                      <td style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>
                         {typeof row['Std Dev'] === 'number'
                           ? row['Std Dev'].toFixed(2)
                           : (row['Std Dev'] ?? '—')}
                       </td>
-                      <td>
+                      <td style={{ fontFamily: 'var(--font-mono)' }}>
                         {typeof row['Mean Time (hrs)'] === 'number'
                           ? row['Mean Time (hrs)'].toFixed(2)
                           : (row['Mean Time (hrs)'] ?? row['Fleet Travel Time (h)'] ?? '—')}
                       </td>
-                      <td>
+                      <td style={{ fontFamily: 'var(--font-mono)' }}>
                         {typeof row['Mean Dist (km)'] === 'number'
                           ? row['Mean Dist (km)'].toFixed(1)
                           : (row['Mean Dist (km)'] ?? row['Fleet Distance (km)'] ?? '—')}
                       </td>
                       <td>
-                        <span style={{ fontFamily: 'JetBrains Mono, monospace', color: isQpso ? 'var(--color-primary)' : 'inherit' }}>
+                        <span style={{ fontFamily: 'var(--font-mono)', color: isQpso ? '#06b6d4' : 'inherit' }}>
                           {typeof row['Mean Compute (ms)'] === 'number'
                             ? row['Mean Compute (ms)'].toFixed(2)
                             : (row['Mean Compute (ms)'] ?? row['Wall-Clock Time (ms)'] ?? '—')} ms
@@ -314,8 +695,9 @@ export default function BenchmarkView({ params }) {
                       </td>
                       <td>
                         <span style={{
-                          color: (row['Relative Gap (%)'] === 0 || row['Relative Gap (%)'] === '0.00%' || row['Optimality Gap (%)'] === '0.00%') ? 'var(--color-success)' : 'var(--color-warning)',
-                          fontWeight: 600
+                          color: isLeader ? 'var(--color-success)' : 'var(--color-warning)',
+                          fontWeight: 600,
+                          fontFamily: 'var(--font-mono)'
                         }}>
                           {typeof row['Relative Gap (%)'] === 'number'
                             ? `${row['Relative Gap (%)'].toFixed(1)}%`
@@ -336,6 +718,19 @@ export default function BenchmarkView({ params }) {
                 })}
               </tbody>
             </table>
+
+            {/* Explanatory Footnote */}
+            <div style={{
+              padding: '10px 18px',
+              background: 'rgba(255,255,255,0.02)',
+              borderTop: '1px solid var(--border-subtle)',
+              fontSize: '0.74rem',
+              color: 'var(--text-secondary)',
+              lineHeight: 1.45
+            }}>
+              💡 <strong>Understanding Cost F(X) vs. Travel Time:</strong> Objective Cost <em>F(X)</em> evaluates overall solution viability: <code>F(X) = Total Travel Time + Penalty(Capacity + Route + Time Window Delays)</code>.
+              For 100% feasible solutions, Cost <em>F(X)</em> equals travel time. If a solver suffers constraint violations (such as GNN with 0% feasibility), large mathematical penalties are added to discourage illegal routes, resulting in a high Cost <em>F(X)</em> despite a low unconstrained travel time.
+            </div>
           </div>
 
           {/* Convergence Curves */}

@@ -36,7 +36,15 @@ export default function MetricsBar({ metrics }) {
       <div className="metric-card">
         <span className="metric-label">{metricIcons.clock} Total Travel Time</span>
         <span className="metric-value">{metrics.total_time?.toFixed(2)} <span style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>hrs</span></span>
-        <span className="metric-footer">Congestion-adjusted time</span>
+        <span className="metric-footer">
+          {metrics.makespan && metrics.vehicles_utilized > 1 ? (
+            <span style={{ color: 'var(--color-primary)', fontWeight: 500 }}>
+              Makespan: {metrics.makespan.toFixed(2)}h (parallel)
+            </span>
+          ) : (
+            'Congestion-adjusted time'
+          )}
+        </span>
       </div>
 
       <div className="metric-card">
@@ -45,12 +53,27 @@ export default function MetricsBar({ metrics }) {
         <span className="metric-footer">Road network traversal</span>
       </div>
 
-      <div className="metric-card">
+      <div className={`metric-card ${metrics.vehicles_utilized > metrics.total_vehicles ? 'card-warning-subtle' : ''}`}>
         <span className="metric-label">{metricIcons.truck} Fleet Vehicles</span>
-        <span className="metric-value" style={{ color: 'var(--color-primary)' }}>
-          {metrics.vehicles_utilized} <span style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>/ {metrics.total_vehicles}</span>
+        <span
+          className="metric-value"
+          style={{ color: metrics.vehicles_utilized > metrics.total_vehicles ? 'var(--color-warning)' : 'var(--color-primary)' }}
+        >
+          {metrics.vehicles_utilized} <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>/ {metrics.total_vehicles} max</span>
         </span>
-        <span className="metric-footer">Active delivery routes</span>
+        <span className="metric-footer">
+          {metrics.vehicles_utilized > metrics.total_vehicles ? (
+            <span style={{ color: 'var(--color-warning)', fontWeight: 500 }}>
+              +{metrics.vehicles_utilized - metrics.total_vehicles} over target limit
+            </span>
+          ) : metrics.total_dispatch_cost > 0 ? (
+            <span>
+              Deployment cost: <strong style={{ color: 'var(--text-main)' }}>{metrics.total_dispatch_cost.toFixed(2)}h</strong>
+            </span>
+          ) : (
+            'Active delivery routes'
+          )}
+        </span>
       </div>
 
       <div className="metric-card">
@@ -66,7 +89,13 @@ export default function MetricsBar({ metrics }) {
         <span className="metric-value" style={{ fontSize: '1.2rem', color: metrics.is_feasible ? 'var(--color-success)' : 'var(--color-warning)' }}>
           {metrics.is_feasible ? 'Feasible' : 'Penalized'}
         </span>
-        <span className="metric-footer">Capacity & Time Windows</span>
+        <span className="metric-footer">
+          {metrics.is_feasible
+            ? 'Capacity & Time Windows'
+            : metrics.vehicles_utilized > metrics.total_vehicles
+            ? 'Fleet allocation shortage'
+            : 'Capacity / Window Delay'}
+        </span>
       </div>
     </div>
   );

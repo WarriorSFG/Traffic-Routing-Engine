@@ -25,7 +25,7 @@ public:
         unsigned int seed = 42
     ) : prob_(prob),
         weights_(weights),
-        decoder_(prob),
+        decoder_(prob, weights.vehicle_cost),
         evaluator_(prob, weights),
         swarm_size_(swarm_size),
         max_iter_(max_iter),

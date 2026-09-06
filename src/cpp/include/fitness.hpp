@@ -97,7 +97,11 @@ public:
         int fleet_viol = std::max(0, (int)sol.route_details.size() - prob_.num_vehicles);
         sol.route_viol = missing + duplicates + fleet_viol;
 
+        double dispatch_cost = (double)sol.route_details.size() * weights_.vehicle_cost;
+        sol.vehicle_cost = dispatch_cost;
+
         sol.penalized_fitness = sol.total_time 
+            + dispatch_cost
             + weights_.lambda_cap * sol.total_cap_viol
             + weights_.lambda_route * sol.route_viol
             + weights_.lambda_tw * sol.total_tw_viol;

@@ -33,6 +33,7 @@ struct PenaltyWeights {
     double lambda_tw = 500.0;
     double rho_early = 10.0;
     double rho_late = 50.0;
+    double vehicle_cost = 0.5;  // Fixed operational/dispatch cost per vehicle deployed (hours equivalent)
 
     void auto_scale(const ProblemData& prob) {
         double max_t = 0.0;
@@ -65,6 +66,7 @@ struct Solution {
     double total_cap_viol = 0.0;
     double total_tw_viol = 0.0;
     int route_viol = 0;
+    double vehicle_cost = 0.0;
     double penalized_fitness = 0.0;
     bool is_feasible = false;
 };
