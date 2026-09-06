@@ -142,7 +142,7 @@ public:
                 double late_depot = std::max(0.0, depot_arr - depot_close);
                 double total_tw = tw_penalty + late_depot * 50.0;
 
-                double total_arc_cost = route_time + ret_depot + 500.0 * total_tw;
+                double total_arc_cost = route_time + ret_depot + vehicle_cost_ + 500.0 * total_tw;
 
                 if (V[i] + total_arc_cost < V[j]) {
                     V[j] = V[i] + total_arc_cost;

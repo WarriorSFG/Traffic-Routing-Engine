@@ -178,8 +178,10 @@ public:
         }
         int fleet_viol = std::max(0, active_routes - prob_.num_vehicles);
         int route_viol = missing + duplicates + fleet_viol;
+        double dispatch_cost = (double)active_routes * weights_.vehicle_cost;
 
         return total_time
+            + dispatch_cost
             + weights_.lambda_cap * total_cap_viol
             + weights_.lambda_route * route_viol
             + weights_.lambda_tw * total_tw_viol;

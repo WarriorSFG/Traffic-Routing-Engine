@@ -6,6 +6,8 @@ __pycache__/
 # C extensions
 *.so
 *.pyd
+*.pyd.old
+*.old
 *.exe
 
 # Distribution / packaging

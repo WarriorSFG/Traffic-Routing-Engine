@@ -65,6 +65,16 @@ def build():
     # 4. Compile Pybind11 Python extension: qpso_engine.pyd
     pyd_target = out_dir / "qpso_engine.pyd"
     print(f"\n[BUILD] Compiling pybind11 module: {pyd_target} ...")
+
+    # On Windows, if a running Python process has qpso_engine.pyd loaded, ld.exe cannot overwrite it.
+    # Renaming the loaded file allows a new file with the target name to be created.
+    if pyd_target.exists():
+        temp_backup = out_dir / f"qpso_engine.{os.getpid()}.old"
+        try:
+            pyd_target.rename(temp_backup)
+        except Exception:
+            pass
+
     cmd_pyd = [
         gpp,
         "-O3",
@@ -92,9 +102,17 @@ def build():
         print("[BUILD SUCCESS] Compiled qpso_engine.pyd successfully!")
 
     # Also copy to root directory or sys.path for convenient importing
+    root_pyd = root_dir / "qpso_engine.pyd"
+    if root_pyd.exists():
+        temp_root_backup = root_dir / f"qpso_engine.{os.getpid()}.old"
+        try:
+            root_pyd.rename(temp_root_backup)
+        except Exception:
+            pass
+
     try:
-        shutil.copy(pyd_target, root_dir / "qpso_engine.pyd")
-        print(f"[BUILD] Copied module to {root_dir / 'qpso_engine.pyd'}")
+        shutil.copy(pyd_target, root_pyd)
+        print(f"[BUILD] Copied module to {root_pyd}")
     except PermissionError:
         print(f"[BUILD WARNING] Could not overwrite root qpso_engine.pyd (locked by active process).")
         print(f"[BUILD SUCCESS] Using fresh binary at {pyd_target}")

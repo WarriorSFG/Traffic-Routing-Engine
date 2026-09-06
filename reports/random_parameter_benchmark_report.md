@@ -7,27 +7,27 @@
 | Metric | QPSO vs Classical PSO | QPSO vs GNN | Overall QPSO Performance |
 | :--- | :--- | :--- | :--- |
 | **Win Rate (% Scenarios Outperformed)** | **66.7%** (2/3 wins) | **100.0%** (3/3 wins) | **66.7%** Global Best |
-| **Mean Fitness Improvement (%)** | **+3.97%** | **+46.39%** | Best Fit: **11.58** |
-| **Mean Fleet Travel Time Reduction (%)** | **+3.97%** | **+22.53%** | Avg Time: **11.58 hrs** |
-| **Mean Fleet Distance Reduction (%)** | **+8.61%** | **+25.16%** | Avg Dist: **392.52 km** |
-| **Mean Wall-Clock Compute Time** | QPSO: 3.33 ms | PSO: 2.92 ms | GNN: 0.00 ms |
-| **Mean Feasibility Rate** | QPSO: **100.0%** | PSO: **100.0%** | GNN: **66.7%** |
+| **Mean Fitness Improvement (%)** | **+1.31%** | **+12.42%** | Best Fit: **13.08** |
+| **Mean Fleet Travel Time Reduction (%)** | **+2.19%** | **+13.52%** | Avg Time: **11.75 hrs** |
+| **Mean Fleet Distance Reduction (%)** | **+7.09%** | **+15.99%** | Avg Dist: **390.47 km** |
+| **Mean Wall-Clock Compute Time** | QPSO: 5.56 ms | PSO: 4.77 ms | GNN: 0.00 ms |
+| **Mean Feasibility Rate** | QPSO: **100.0%** | PSO: **100.0%** | GNN: **100.0%** |
 
 ## 2. Statistical Aggregates by Algorithm
 
 | Algorithm | Mean Best Fitness | Mean Total Fitness | Fleet Travel Time (h) | Fleet Distance (km) | Compute Time (ms) | Feasibility Rate |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Quantum-Inspired PSO (QPSO)** | **11.58** | **11.58** | **11.58** | **392.52** | 3.33 | **100.0%** |
-| **Classical PSO** | 11.68 | 12.07 | 12.07 | 428.06 | 2.92 | 100.0% |
-| **Greedy Nearest Neighbor (GNN)** | 2072.08 | 2072.08 | 15.57 | 540.44 | 0.00 | 66.7% |
+| **Quantum-Inspired PSO (QPSO)** | **13.08** | **13.08** | **11.75** | **390.47** | 5.56 | **100.0%** |
+| **Classical PSO** | 12.95 | 13.25 | 12.00 | 418.19 | 4.77 | 100.0% |
+| **Greedy Nearest Neighbor (GNN)** | 15.35 | 15.35 | 14.02 | 476.40 | 0.00 | 100.0% |
 
 ## 3. Detailed Randomized Scenario Breakdown
 
 | Scenario | Seed | Stops/Veh/Cap | Swarm/Iter | Preset @ Time | QPSO Fitness | PSO Fitness | GNN Fitness | QPSO vs PSO (Fit %) | QPSO vs GNN (Fit %) | Winner |
 | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| #1 | `701` | 8c / 2v / 90 | 20s / 30it | rush_hour @ 8.5h | **13.60** | 14.09 | 6188.46 | +3.45% | +99.78% | **QPSO** |
-| #2 | `802` | 10c / 3v / 100 | 20s / 30it | uniform @ 13.0h | **10.36** | 10.59 | 16.93 | +10.45% | +38.82% | **QPSO** |
-| #3 | `903` | 12c / 3v / 110 | 25s / 35it | incident @ 18.0h | **10.77** | 10.36 | 10.83 | -2.00% | +0.56% | **QPSO (beats GNN)** |
+| #1 | `701` | 8c / 2v / 90 | 20s / 30it | rush_hour @ 8.5h | **15.11** | 15.13 | 15.28 | +0.61% | +1.11% | **QPSO** |
+| #2 | `802` | 10c / 3v / 100 | 20s / 30it | uniform @ 13.0h | **11.86** | 11.86 | 18.43 | +4.29% | +35.66% | **QPSO** |
+| #3 | `903` | 12c / 3v / 110 | 25s / 35it | incident @ 18.0h | **12.27** | 11.86 | 12.33 | -0.96% | +0.49% | **QPSO (beats GNN)** |
 
 ## 4. Key Engineering Insights
 

@@ -482,7 +482,11 @@ class RandomBenchmarkSuite:
         pso_dist_imp = ((pso.mean_dist_km - qpso.mean_dist_km) / max(1e-6, pso.mean_dist_km)) * 100.0
         pso_speedup = pso.mean_compute_ms / max(1e-6, qpso.mean_compute_ms)
         pso_winner = "QPSO" if qpso.best_fitness < (pso.best_fitness - 1e-4) else (
-            "Classical PSO" if pso.best_fitness < (qpso.best_fitness - 1e-4) else "Tie"
+            "Classical PSO" if pso.best_fitness < (qpso.best_fitness - 1e-4) else (
+                "QPSO" if qpso.mean_fitness < (pso.mean_fitness - 1e-4) else (
+                    "Classical PSO" if pso.mean_fitness < (qpso.mean_fitness - 1e-4) else "Tie"
+                )
+            )
         )
 
         # 6. Compute comparisons: QPSO vs GNN
@@ -492,7 +496,11 @@ class RandomBenchmarkSuite:
         gnn_dist_imp = ((gnn.mean_dist_km - qpso.mean_dist_km) / max(1e-6, gnn.mean_dist_km)) * 100.0
         gnn_speedup = gnn.mean_compute_ms / max(1e-6, qpso.mean_compute_ms)
         gnn_winner = "QPSO" if qpso.best_fitness < (gnn.best_fitness - 1e-4) else (
-            "GNN" if gnn.best_fitness < (qpso.best_fitness - 1e-4) else "Tie"
+            "GNN" if gnn.best_fitness < (qpso.best_fitness - 1e-4) else (
+                "QPSO" if qpso.mean_fitness < (gnn.mean_fitness - 1e-4) else (
+                    "GNN" if gnn.mean_fitness < (qpso.mean_fitness - 1e-4) else "Tie"
+                )
+            )
         )
 
         params_dict = {

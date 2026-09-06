@@ -162,8 +162,8 @@ public:
 
         auto end_time = std::chrono::high_resolution_clock::now();
         res.total_compute_ms = std::chrono::duration<double, std::milli>(end_time - start_time).count();
-        res.best_fitness = gbest_fit;
         res.best_solution = evaluator_.evaluate(decoder_.decode(G));
+        res.best_fitness = res.best_solution.penalized_fitness;
 
         return res;
     }
