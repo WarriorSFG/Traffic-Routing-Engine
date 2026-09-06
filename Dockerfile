@@ -24,10 +24,5 @@ RUN python scripts/build_cpp.py
 # Default port (Render, Railway, Fly.io provide $PORT at runtime)
 ENV PORT=5000
 EXPOSE 5000
-
-# Healthcheck
-HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-  CMD curl -f http://localhost:${PORT}/api/health || exit 1
-
 # Start multi-threaded production server
 CMD ["sh", "-c", "gunicorn --workers 1 --threads 4 --timeout 120 --bind 0.0.0.0:${PORT} --chdir src traffic_routing.dashboard.server:app"]
