@@ -41,37 +41,50 @@ public:
         int D = prob_.num_customers;
         std::mt19937 rng(seed_);
         std::uniform_real_distribution<double> dist01(0.0, 1.0);
+        std::uniform_real_distribution<double> dist_angle(0.0, 2.0 * 3.14159265358979323846);
         std::bernoulli_distribution coin(0.5);
         const double PI = 3.14159265358979323846;
+        const double TWO_PI = 2.0 * PI;
 
-        // Particle states: position X and personal best P
+        // Bloch-sphere Qubit Phase Representation: Theta[i][j] in [0, 2*PI)
+        // Position in [0, 1]^D derived via probability amplitude: X[i][j] = cos^2(Theta[i][j])
+        std::vector<std::vector<double>> Theta(swarm_size_, std::vector<double>(D));
         std::vector<std::vector<double>> X(swarm_size_, std::vector<double>(D));
         std::vector<std::vector<double>> P(swarm_size_, std::vector<double>(D));
+        std::vector<std::vector<double>> P_Theta(swarm_size_, std::vector<double>(D));
         std::vector<double> pbest_fit(swarm_size_, std::numeric_limits<double>::infinity());
 
         std::vector<double> G(D);
+        std::vector<double> G_Theta(D);
         double gbest_fit = std::numeric_limits<double>::infinity();
         std::vector<std::vector<int>> best_routes;
 
-        // 1. Swarm Initialization (§11.6 Step 1)
+        // 1. Swarm Initialization with Qubit Amplitude Angles
         if (!warm_start_keys.empty() && (int)warm_start_keys.size() == D) {
-            X[0] = warm_start_keys;
-            P[0] = warm_start_keys;
+            for (int j = 0; j < D; ++j) {
+                double key = std::clamp(warm_start_keys[j], 0.0001, 0.9999);
+                Theta[0][j] = std::acos(std::sqrt(key));
+                X[0][j] = key;
+                P[0][j] = key;
+                P_Theta[0][j] = Theta[0][j];
+            }
             for (int i = 1; i < std::min(swarm_size_, 5); ++i) {
                 for (int j = 0; j < D; ++j) {
-                    double noise = (dist01(rng) - 0.5) * 0.05;
-                    double val = warm_start_keys[j] + noise;
-                    if (val < 0.0) val = -val;
-                    if (val > 1.0) val = 2.0 - val;
-                    val = std::clamp(val, 0.0, 1.0);
-                    X[i][j] = val;
-                    P[i][j] = val;
+                    double angle = Theta[0][j] + (dist01(rng) - 0.5) * 0.1;
+                    Theta[i][j] = std::fmod(angle + TWO_PI, TWO_PI);
+                    double c = std::cos(Theta[i][j]);
+                    X[i][j] = c * c;
+                    P[i][j] = X[i][j];
+                    P_Theta[i][j] = Theta[i][j];
                 }
             }
             for (int i = 5; i < swarm_size_; ++i) {
                 for (int j = 0; j < D; ++j) {
-                    X[i][j] = dist01(rng);
+                    Theta[i][j] = dist_angle(rng);
+                    double c = std::cos(Theta[i][j]);
+                    X[i][j] = c * c;
                     P[i][j] = X[i][j];
+                    P_Theta[i][j] = Theta[i][j];
                 }
             }
         } else {
@@ -85,29 +98,36 @@ public:
                 }
             }
             std::vector<double> gnn_keys = decoder_.encode(gnn_sequence);
-            X[0] = gnn_keys;
-            P[0] = gnn_keys;
+            for (int j = 0; j < D; ++j) {
+                double key = std::clamp(gnn_keys[j], 0.0001, 0.9999);
+                Theta[0][j] = std::acos(std::sqrt(key));
+                X[0][j] = key;
+                P[0][j] = key;
+                P_Theta[0][j] = Theta[0][j];
+            }
 
             for (int i = 1; i < std::min(swarm_size_, 5); ++i) {
                 for (int j = 0; j < D; ++j) {
-                    double noise = (dist01(rng) - 0.5) * 0.05;
-                    double val = gnn_keys[j] + noise;
-                    if (val < 0.0) val = -val;
-                    if (val > 1.0) val = 2.0 - val;
-                    val = std::clamp(val, 0.0, 1.0);
-                    X[i][j] = val;
-                    P[i][j] = val;
+                    double angle = Theta[0][j] + (dist01(rng) - 0.5) * 0.1;
+                    Theta[i][j] = std::fmod(angle + TWO_PI, TWO_PI);
+                    double c = std::cos(Theta[i][j]);
+                    X[i][j] = c * c;
+                    P[i][j] = X[i][j];
+                    P_Theta[i][j] = Theta[i][j];
                 }
             }
             for (int i = 5; i < swarm_size_; ++i) {
                 for (int j = 0; j < D; ++j) {
-                    X[i][j] = dist01(rng);
+                    Theta[i][j] = dist_angle(rng);
+                    double c = std::cos(Theta[i][j]);
+                    X[i][j] = c * c;
                     P[i][j] = X[i][j];
+                    P_Theta[i][j] = Theta[i][j];
                 }
             }
         }
 
-        // Initial swarm evaluation (§11.6 Step 1)
+        // Initial swarm evaluation with Prins' Optimal Split
         #pragma omp parallel for
         for (int i = 0; i < swarm_size_; ++i) {
             auto routes = decoder_.decode(X[i]);
@@ -119,6 +139,7 @@ public:
             if (pbest_fit[i] < gbest_fit) {
                 gbest_fit = pbest_fit[i];
                 G = P[i];
+                G_Theta = P_Theta[i];
                 best_routes = decoder_.decode(P[i]);
             }
         }
@@ -127,8 +148,12 @@ public:
         double refined_fit = gbest_fit;
         if (vns_local_search(best_routes, refined_fit, 2)) {
             G = decoder_.encode_routes(best_routes);
+            for (int j = 0; j < D; ++j) {
+                G_Theta[j] = std::acos(std::sqrt(std::clamp(G[j], 0.0001, 0.9999)));
+            }
             gbest_fit = refined_fit;
             P[0] = G;
+            P_Theta[0] = G_Theta;
             pbest_fit[0] = gbest_fit;
         }
 
@@ -139,95 +164,85 @@ public:
         double init_elapsed = std::chrono::duration<double, std::milli>(init_time - start_time).count();
         res.history.push_back({0, gbest_fit, gbest_fit, init_elapsed});
 
-        std::vector<double> mbest(D, 0.0);
+        std::vector<double> mbest_theta(D, 0.0);
         std::vector<double> current_fit(swarm_size_);
 
         for (int iter = 1; iter <= max_iter_; ++iter) {
-            // Step 1: Compute mean best position mbest (§11.2)
-            std::fill(mbest.begin(), mbest.end(), 0.0);
+            // Step 1: Compute mean best phase angle mbest_theta
+            std::fill(mbest_theta.begin(), mbest_theta.end(), 0.0);
             for (int i = 0; i < swarm_size_; ++i) {
                 for (int j = 0; j < D; ++j) {
-                    mbest[j] += P[i][j];
+                    mbest_theta[j] += P_Theta[i][j];
                 }
             }
             double inv_M = 1.0 / swarm_size_;
             for (int j = 0; j < D; ++j) {
-                mbest[j] *= inv_M;
+                mbest_theta[j] *= inv_M;
             }
 
-            // Swarm spatial diversity monitor
-            double diversity = 0.0;
-            for (int i = 0; i < swarm_size_; ++i) {
-                for (int j = 0; j < D; ++j) {
-                    diversity += std::abs(P[i][j] - mbest[j]);
-                }
-            }
-            diversity /= (swarm_size_ * D);
-
-            // Step 2: Adaptive non-linear contraction-expansion coefficient beta(t) (§11.5)
+            // Step 2: Adaptive non-linear contraction-expansion coefficient beta(t)
             double progress = (double)iter / (double)max_iter_;
-            double beta = beta_min_ + (beta_max_ - beta_min_) * std::exp(-2.0 * progress * progress);
+            double beta = beta_min_ + (beta_max_ - beta_min_) * std::exp(-2.2 * progress * progress);
 
-            // Step 3: Quantum position sampling update (§11.3, §11.4)
+            // Step 3: Quantum Rotation Gate Dynamic Update
             for (int i = 0; i < swarm_size_; ++i) {
                 for (int j = 0; j < D; ++j) {
                     double phi = dist01(rng);
-                    double p_ij = phi * P[i][j] + (1.0 - phi) * G[j];
+                    double p_theta_ij = phi * P_Theta[i][j] + (1.0 - phi) * G_Theta[j];
 
                     double u = std::max(1e-12, dist01(rng));
                     double log_term = std::log(1.0 / u);
-                    double jump = beta * std::abs(mbest[j] - X[i][j]) * log_term;
+                    double angle_diff = std::abs(mbest_theta[j] - Theta[i][j]);
+                    double delta_theta = beta * angle_diff * log_term;
 
                     double sign = coin(rng) ? 1.0 : -1.0;
-                    double next_val = p_ij + sign * jump;
+                    double next_theta = p_theta_ij + sign * delta_theta;
 
-                    // Reflective boundary handling
-                    if (next_val < 0.0) next_val = -next_val;
-                    if (next_val > 1.0) next_val = 2.0 - next_val;
-                    X[i][j] = std::clamp(next_val, 0.0, 1.0);
+                    // Periodic phase wrap on Bloch sphere: [0, 2*PI)
+                    next_theta = std::fmod(next_theta, TWO_PI);
+                    if (next_theta < 0.0) next_theta += TWO_PI;
+
+                    Theta[i][j] = next_theta;
+                    double c = std::cos(next_theta);
+                    X[i][j] = c * c;
                 }
             }
 
-            // Step 3b: Anti-Stagnation Quantum Wave Packet Tunneling (Cauchy jump)
-            if (diversity < 0.03 || iter % 15 == 0) {
-                std::vector<size_t> idx(swarm_size_);
-                std::iota(idx.begin(), idx.end(), 0);
-                std::sort(idx.begin(), idx.end(), [&pbest_fit](size_t a, size_t b) {
-                    return pbest_fit[a] < pbest_fit[b];
-                });
-
-                int num_tunnel = std::max(1, swarm_size_ / 4);
-                for (int k = swarm_size_ - num_tunnel; k < swarm_size_; ++k) {
-                    size_t p_idx = idx[k];
-                    for (int j = 0; j < D; ++j) {
-                        double u = dist01(rng);
-                        double cauchy_step = std::tan(PI * (u - 0.5));
-                        cauchy_step = std::clamp(cauchy_step, -1.0, 1.0);
-                        double tunnel_val = G[j] + 0.20 * cauchy_step;
-                        if (tunnel_val < 0.0) tunnel_val = -tunnel_val;
-                        if (tunnel_val > 1.0) tunnel_val = 2.0 - tunnel_val;
-                        X[p_idx][j] = std::clamp(tunnel_val, 0.0, 1.0);
+            // Step 3b: Kendall-Tau Permutation Swarm Entropy & Cataclysm
+            if (iter % 12 == 0) {
+                double avg_tau = compute_swarm_kendall_tau(P);
+                if (avg_tau < 0.12) {
+                    // Quantum phase cataclysm: re-superpose 60% of swarm angles
+                    int start_k = std::max(2, swarm_size_ / 3);
+                    for (int k = start_k; k < swarm_size_; ++k) {
+                        for (int j = 0; j < D; ++j) {
+                            Theta[k][j] = dist_angle(rng);
+                            double c = std::cos(Theta[k][j]);
+                            X[k][j] = c * c;
+                        }
                     }
                 }
             }
 
-            // Step 4: Parallel fitness evaluation (§11.6 Step 1)
+            // Step 4: Parallel fitness evaluation using Prins' Optimal Split
             #pragma omp parallel for
             for (int i = 0; i < swarm_size_; ++i) {
                 auto routes = decoder_.decode(X[i]);
                 current_fit[i] = evaluator_.evaluate_fitness_fast(routes);
             }
 
-            // Step 5: Update personal bests P_i and global best G (§11.6 Step 2)
+            // Step 5: Update personal bests and global best
             double iter_best = std::numeric_limits<double>::infinity();
             for (int i = 0; i < swarm_size_; ++i) {
                 if (current_fit[i] < pbest_fit[i]) {
                     pbest_fit[i] = current_fit[i];
                     P[i] = X[i];
+                    P_Theta[i] = Theta[i];
                 }
                 if (pbest_fit[i] < gbest_fit) {
                     gbest_fit = pbest_fit[i];
                     G = P[i];
+                    G_Theta = P_Theta[i];
                     best_routes = decoder_.decode(P[i]);
                 }
                 if (current_fit[i] < iter_best) {
@@ -236,7 +251,7 @@ public:
             }
 
             // Step 6: Hybrid Memetic VNS Local Search on Global Best
-            if (iter % 5 == 0 || iter == max_iter_) {
+            if (iter % 4 == 0 || iter == max_iter_) {
                 auto candidate_routes = best_routes;
                 double vns_fit = gbest_fit;
                 if (vns_local_search(candidate_routes, vns_fit, 2)) {
@@ -244,8 +259,11 @@ public:
                         best_routes = candidate_routes;
                         gbest_fit = vns_fit;
                         G = decoder_.encode_routes(candidate_routes);
+                        for (int j = 0; j < D; ++j) {
+                            G_Theta[j] = std::acos(std::sqrt(std::clamp(G[j], 0.0001, 0.9999)));
+                        }
 
-                        // Re-seed worst particle in swarm with new global best
+                        // Re-seed worst particle with global best
                         size_t worst_idx = 0;
                         double worst_val = -1.0;
                         for (size_t i = 0; i < (size_t)swarm_size_; ++i) {
@@ -255,7 +273,9 @@ public:
                             }
                         }
                         P[worst_idx] = G;
+                        P_Theta[worst_idx] = G_Theta;
                         X[worst_idx] = G;
+                        Theta[worst_idx] = G_Theta;
                         pbest_fit[worst_idx] = gbest_fit;
                     }
                 }
@@ -284,6 +304,42 @@ private:
     double beta_max_;
     double beta_min_;
     unsigned int seed_;
+
+    // Computes average normalized Kendall-Tau distance between personal best permutations and G
+    double compute_swarm_kendall_tau(const std::vector<std::vector<double>>& P) const {
+        int D = prob_.num_customers;
+        if (D <= 1) return 1.0;
+        int total_pairs = D * (D - 1) / 2;
+
+        std::vector<int> g_seq = decoder_.decode_sequence(P[0]);
+        std::vector<int> g_rank(D + 1);
+        for (int r = 0; r < D; ++r) {
+            g_rank[g_seq[r]] = r;
+        }
+
+        double total_norm_dist = 0.0;
+        int count = 0;
+
+        for (int i = 1; i < swarm_size_; ++i) {
+            std::vector<int> p_seq = decoder_.decode_sequence(P[i]);
+            std::vector<int> p_rank(D + 1);
+            for (int r = 0; r < D; ++r) {
+                p_rank[p_seq[r]] = r;
+            }
+
+            int inversions = 0;
+            for (int a = 1; a < D; ++a) {
+                for (int b = a + 1; b <= D; ++b) {
+                    bool g_order = (g_rank[a] < g_rank[b]);
+                    bool p_order = (p_rank[a] < p_rank[b]);
+                    if (g_order != p_order) inversions++;
+                }
+            }
+            total_norm_dist += (double)inversions / (double)total_pairs;
+            count++;
+        }
+        return count > 0 ? (total_norm_dist / count) : 1.0;
+    }
 
     // Helper to evaluate validity and feasibility preservation
     bool is_valid_candidate(const std::vector<std::vector<int>>& routes, double cand_fit, double best_fit, bool was_feasible) const {

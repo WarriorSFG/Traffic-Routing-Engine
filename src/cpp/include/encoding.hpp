@@ -84,10 +84,101 @@ public:
         return routes;
     }
 
-    // Full decode: keys -> routes
+    // Prins' Optimal DAG Split Algorithm (Prins 2004, Vidal 2014)
+    // Solves the optimal vehicle route partition of a customer sequence in O(B*N) via Bellman-Ford DAG shortest path.
+    std::vector<std::vector<int>> split_routes_prins(const std::vector<int>& sequence) const {
+        int n = (int)sequence.size();
+        if (n == 0) return {};
+
+        int max_vehicles = prob_.num_vehicles > 0 ? prob_.num_vehicles : 1;
+        double capacity = prob_.capacity;
+        double depot_start = prob_.time_windows[0].first;
+        double depot_close = prob_.time_windows[0].second;
+
+        // DP state: V[i] is min cost to serve prefix sequence[0..i-1]
+        std::vector<double> V(n + 1, std::numeric_limits<double>::infinity());
+        std::vector<int> pred(n + 1, -1);
+        V[0] = 0.0;
+
+        for (int i = 0; i < n; ++i) {
+            if (V[i] == std::numeric_limits<double>::infinity()) continue;
+
+            double load = 0.0;
+            double route_time = 0.0;
+            double current_t = depot_start;
+            double tw_penalty = 0.0;
+            int prev = 0;
+
+            for (int j = i + 1; j <= n; ++j) {
+                int cust = sequence[j - 1];
+                load += prob_.demands[cust];
+
+                // Capacity constraint pruning
+                if (load > capacity) break;
+
+                // Incremental travel time
+                double travel_ij = prob_.get_time(prev, cust);
+                double arr_t = current_t + travel_ij;
+
+                double e_i = prob_.time_windows[cust].first;
+                double l_i = prob_.time_windows[cust].second;
+                double s_i = prob_.service_times[cust];
+
+                double early_wait = std::max(0.0, e_i - arr_t);
+                double late_time = std::max(0.0, arr_t - l_i);
+                tw_penalty += early_wait * 0.0 + late_time * 50.0;
+
+                double eff_start = std::max(arr_t, e_i);
+                current_t = eff_start + s_i;
+                route_time += travel_ij;
+                prev = cust;
+
+                // Return to depot
+                double ret_depot = prob_.get_time(prev, 0);
+                double depot_arr = current_t + ret_depot;
+                double late_depot = std::max(0.0, depot_arr - depot_close);
+                double total_tw = tw_penalty + late_depot * 50.0;
+
+                double total_arc_cost = route_time + ret_depot + 500.0 * total_tw;
+
+                if (V[i] + total_arc_cost < V[j]) {
+                    V[j] = V[i] + total_arc_cost;
+                    pred[j] = i;
+                }
+            }
+        }
+
+        // If DAG shortest path reached end node n, backtrack routes
+        if (V[n] < std::numeric_limits<double>::infinity()) {
+            std::vector<std::vector<int>> reversed_routes;
+            int curr = n;
+            while (curr > 0) {
+                int p = pred[curr];
+                if (p < 0) break;
+                std::vector<int> r = {0};
+                for (int k = p; k < curr; ++k) {
+                    r.push_back(sequence[k]);
+                }
+                r.push_back(0);
+                reversed_routes.push_back(r);
+                curr = p;
+            }
+
+            // Check if fleet size constraint is satisfied
+            if ((int)reversed_routes.size() <= max_vehicles) {
+                std::reverse(reversed_routes.begin(), reversed_routes.end());
+                return reversed_routes;
+            }
+        }
+
+        // Fallback to greedy split if fleet limit exceeded or unreachable
+        return split_routes(sequence);
+    }
+
+    // Full decode: keys -> routes using Prins' Optimal DAG Split
     std::vector<std::vector<int>> decode(const std::vector<double>& keys) const {
         std::vector<int> seq = decode_sequence(keys);
-        return split_routes(seq);
+        return split_routes_prins(seq);
     }
 
     // Inverse of decode: customer visitation sequence -> random keys in [0, 1]^D
