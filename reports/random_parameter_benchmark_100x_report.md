@@ -10,15 +10,15 @@
 | **Mean Fitness Improvement (%)** | **+5.32%** | **+17.33%** | Best Fit: **13.84** |
 | **Mean Fleet Travel Time Reduction (%)** | **+5.80%** | **+19.09%** | Avg Time: **12.13 hrs** |
 | **Mean Fleet Distance Reduction (%)** | **+5.72%** | **+19.77%** | Avg Dist: **465.26 km** |
-| **Mean Wall-Clock Compute Time** | QPSO: 13.56 ms | PSO: 10.67 ms | GNN: 0.01 ms |
+| **Mean Wall-Clock Compute Time** | QPSO: 12.34 ms | PSO: 9.58 ms | GNN: 0.01 ms |
 | **Mean Feasibility Rate** | QPSO: **100.0%** | PSO: **100.0%** | GNN: **99.7%** |
 
 ## 2. Statistical Aggregates by Algorithm
 
 | Algorithm | Mean Best Fitness | Mean Total Fitness | Fleet Travel Time (h) | Fleet Distance (km) | Compute Time (ms) | Feasibility Rate |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Quantum-Inspired PSO (QPSO)** | **13.84** | **13.84** | **12.13** | **465.26** | 13.56 | **100.0%** |
-| **Classical PSO** | 14.75 | 14.75 | 13.02 | 500.05 | 10.67 | 100.0% |
+| **Quantum-Inspired PSO (QPSO)** | **13.84** | **13.84** | **12.13** | **465.26** | 12.34 | **100.0%** |
+| **Classical PSO** | 14.75 | 14.75 | 13.02 | 500.05 | 9.58 | 100.0% |
 | **Greedy Nearest Neighbor (GNN)** | 196.16 | 196.16 | 15.07 | 585.49 | 0.01 | 99.7% |
 
 ## 3. Detailed Randomized Scenario Breakdown
