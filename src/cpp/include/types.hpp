@@ -31,7 +31,7 @@ struct PenaltyWeights {
     double lambda_cap = 1000.0;
     double lambda_route = 1000.0;
     double lambda_tw = 500.0;
-    double rho_early = 10.0;
+    double rho_early = 0.0;
     double rho_late = 50.0;
 
     void auto_scale(const ProblemData& prob) {
@@ -42,7 +42,7 @@ struct PenaltyWeights {
         double scale = 10.0 * max_t * prob.num_stops;
         lambda_cap = scale * 10.0;
         lambda_route = scale * 500.0;
-        lambda_tw = 1.0;
+        lambda_tw = scale * 1.0;
     }
 };
 

@@ -125,6 +125,7 @@ class CPP_PSOSolver(BaseSolver):
         self._weights_cpp = _convert_penalties_to_cpp(penalty_config, problem)
 
     def solve(self, warm_start: Optional[List[float]] = None) -> SolverResult:
+        warm_start_vec = warm_start or []
         res_cpp = qpso_engine.solve_pso(
             self._prob_cpp,
             self._weights_cpp,
@@ -133,7 +134,8 @@ class CPP_PSOSolver(BaseSolver):
             w=self.config.pso_w,
             c1=self.config.pso_c1,
             c2=self.config.pso_c2,
-            seed=self.config.seed or 42
+            seed=self.config.seed or 42,
+            warm_start=warm_start_vec
         )
         return _convert_cpp_result_to_py(res_cpp)
 

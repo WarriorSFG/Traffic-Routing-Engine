@@ -22,10 +22,11 @@ SolverResult run_pso_binding(
     double w,
     double c1,
     double c2,
-    unsigned int seed
+    unsigned int seed,
+    const std::vector<double>& warm_start
 ) {
     PSOSolver solver(prob, weights, swarm_size, max_iter, w, c1, c2, seed);
-    return solver.solve();
+    return solver.solve(warm_start);
 }
 
 SolverResult run_qpso_binding(
@@ -120,7 +121,8 @@ PYBIND11_MODULE(qpso_engine, m) {
           py::arg("problem"), py::arg("weights"),
           py::arg("swarm_size") = 40, py::arg("max_iter") = 150,
           py::arg("w") = 0.7298, py::arg("c1") = 1.49618, py::arg("c2") = 1.49618,
-          py::arg("seed") = 42);
+          py::arg("seed") = 42,
+          py::arg("warm_start") = std::vector<double>());
 
     m.def("solve_qpso", &run_qpso_binding, "Run Quantum-Inspired Particle Swarm Optimization solver",
           py::arg("problem"), py::arg("weights"),

@@ -34,13 +34,14 @@ public:
         c2_(c2),
         seed_(seed) {}
 
-    SolverResult solve() {
+    SolverResult solve(const std::vector<double>& warm_start_keys = {}) {
         auto start_time = std::chrono::high_resolution_clock::now();
 
         int D = prob_.num_customers;
         std::mt19937 rng(seed_);
         std::uniform_real_distribution<double> dist01(0.0, 1.0);
         std::uniform_real_distribution<double> dist_vel(-0.1, 0.1);
+        double v_max = 0.2;
 
         // Particle states
         std::vector<std::vector<double>> X(swarm_size_, std::vector<double>(D));
@@ -50,7 +51,6 @@ public:
 
         std::vector<double> G(D);
         double gbest_fit = std::numeric_limits<double>::infinity();
-        std::vector<std::vector<int>> gbest_routes;
 
         // Initialize particles
         for (int i = 0; i < swarm_size_; ++i) {
@@ -58,6 +58,23 @@ public:
                 X[i][j] = dist01(rng);
                 V[i][j] = dist_vel(rng);
                 P[i][j] = X[i][j];
+            }
+        }
+
+        // Apply warm start if provided
+        if (!warm_start_keys.empty() && (int)warm_start_keys.size() == D) {
+            X[0] = warm_start_keys;
+            P[0] = warm_start_keys;
+            for (int i = 1; i < std::min(swarm_size_, 5); ++i) {
+                for (int j = 0; j < D; ++j) {
+                    double noise = (dist01(rng) - 0.5) * 0.05;
+                    double val = warm_start_keys[j] + noise;
+                    if (val < 0.0) val = -val;
+                    if (val > 1.0) val = 2.0 - val;
+                    val = std::clamp(val, 0.0, 1.0);
+                    X[i][j] = val;
+                    P[i][j] = val;
+                }
             }
         }
 
@@ -75,7 +92,6 @@ public:
                 G = P[i];
             }
         }
-        gbest_routes = decoder_.decode(G);
 
         SolverResult res;
         res.algorithm_name = "Classical PSO";
@@ -88,16 +104,31 @@ public:
         std::vector<double> current_fit(swarm_size_);
 
         for (int iter = 1; iter <= max_iter_; ++iter) {
+            // Dynamic inertia weight annealing: w_max -> w_min (Reference.md §9.3)
+            double w_curr = w_ - (w_ - 0.4) * ((double)iter / (double)max_iter_);
+
             // Velocity & Position update (§9.3, §9.4)
             for (int i = 0; i < swarm_size_; ++i) {
                 for (int j = 0; j < D; ++j) {
                     double r1 = dist01(rng);
                     double r2 = dist01(rng);
-                    V[i][j] = w_ * V[i][j] + c1_ * r1 * (P[i][j] - X[i][j]) + c2_ * r2 * (G[j] - X[i][j]);
-                    X[i][j] += V[i][j];
-                    // Boundary clamping (§9.4)
-                    if (X[i][j] < 0.0) X[i][j] = 0.0;
-                    else if (X[i][j] > 1.0) X[i][j] = 1.0;
+                    double v = w_curr * V[i][j] + c1_ * r1 * (P[i][j] - X[i][j]) + c2_ * r2 * (G[j] - X[i][j]);
+
+                    // Velocity clamping
+                    if (v > v_max) v = v_max;
+                    else if (v < -v_max) v = -v_max;
+                    V[i][j] = v;
+
+                    double x = X[i][j] + v;
+                    // Reflective boundary handling to prevent clumping
+                    if (x < 0.0) {
+                        x = -x;
+                        V[i][j] = -V[i][j] * 0.5;
+                    } else if (x > 1.0) {
+                        x = 2.0 - x;
+                        V[i][j] = -V[i][j] * 0.5;
+                    }
+                    X[i][j] = std::clamp(x, 0.0, 1.0);
                 }
             }
 

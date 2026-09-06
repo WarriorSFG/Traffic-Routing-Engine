@@ -106,9 +106,79 @@ public:
         return sol;
     }
 
-    // Fast scalar fitness calculation for inner loops
+    // Fast zero-allocation scalar fitness calculation for inner loops
     double evaluate_fitness_fast(const std::vector<std::vector<int>>& routes) const {
-        return evaluate(routes).penalized_fitness;
+        double total_time = 0.0;
+        double total_cap_viol = 0.0;
+        double total_tw_viol = 0.0;
+        int active_routes = 0;
+
+        std::vector<int> visit_counts(prob_.num_stops, 0);
+
+        for (const auto& r : routes) {
+            // Count non-depot stops
+            int cust_count = 0;
+            for (int stop : r) {
+                if (stop != 0) {
+                    cust_count++;
+                    if (stop < prob_.num_stops) {
+                        visit_counts[stop]++;
+                    }
+                }
+            }
+            if (cust_count == 0) continue;
+
+            active_routes++;
+            double current_time = prob_.time_windows[0].first;
+            double route_load = 0.0;
+            int prev = 0;
+
+            for (int stop : r) {
+                if (stop == 0) continue;
+                double travel_t = prob_.get_time(prev, stop);
+                total_time += travel_t;
+                double arr_t = current_time + travel_t;
+
+                route_load += prob_.demands[stop];
+                double e_i = prob_.time_windows[stop].first;
+                double l_i = prob_.time_windows[stop].second;
+                double s_i = prob_.service_times[stop];
+
+                double early_w = std::max(0.0, e_i - arr_t);
+                double late_v = std::max(0.0, arr_t - l_i);
+                total_tw_viol += early_w * weights_.rho_early + late_v * weights_.rho_late;
+
+                double eff_start = std::max(arr_t, e_i);
+                current_time = eff_start + s_i;
+                prev = stop;
+            }
+
+            // Return to depot
+            double return_t = prob_.get_time(prev, 0);
+            total_time += return_t;
+            double arr_depot = current_time + return_t;
+            double depot_close = prob_.time_windows[0].second;
+            double late_depot = std::max(0.0, arr_depot - depot_close);
+            total_tw_viol += late_depot * weights_.rho_late;
+
+            if (route_load > prob_.capacity) {
+                total_cap_viol += (route_load - prob_.capacity);
+            }
+        }
+
+        int missing = 0;
+        int duplicates = 0;
+        for (int i = 1; i < prob_.num_stops; ++i) {
+            if (visit_counts[i] == 0) missing++;
+            else if (visit_counts[i] > 1) duplicates += (visit_counts[i] - 1);
+        }
+        int fleet_viol = std::max(0, active_routes - prob_.num_vehicles);
+        int route_viol = missing + duplicates + fleet_viol;
+
+        return total_time
+            + weights_.lambda_cap * total_cap_viol
+            + weights_.lambda_route * route_viol
+            + weights_.lambda_tw * total_tw_viol;
     }
 
 private:
