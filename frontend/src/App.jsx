@@ -5,6 +5,7 @@ import ComparisonStudio from './components/ComparisonStudio';
 import RerouteView from './components/RerouteView';
 import BenchmarkView from './components/BenchmarkView';
 import ReferenceBookView from './components/ReferenceBookView';
+import { API_BASE } from './config';
 
 // Sidebar SVG icons
 const SidebarIcon = {
@@ -217,7 +218,7 @@ export default function App() {
       vehicle_cost: vehicleCost
     };
     try {
-      const res = await fetch('/api/simulate', {
+      const res = await fetch(`${API_BASE}/api/simulate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(bodyParams)

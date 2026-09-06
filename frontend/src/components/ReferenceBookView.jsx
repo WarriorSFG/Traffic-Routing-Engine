@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { marked } from 'marked';
 import katex from 'katex';
 import 'katex/dist/katex.min.css';
+import { API_BASE } from '../config';
 
 const bookIcons = {
   search: (
@@ -65,7 +66,7 @@ export default function ReferenceBookView() {
     async function fetchReference() {
       setLoading(true);
       try {
-        const res = await fetch('/api/reference');
+        const res = await fetch(`${API_BASE}/api/reference`);
         const json = await res.json();
         if (json.success) {
           setBookData(json.data);

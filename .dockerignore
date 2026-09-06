@@ -1,0 +1,10 @@
+.git
+.gitignore
+.pytest_cache
+__pycache__
+*.pyc
+*.pyd
+*.old
+frontend/node_modules
+frontend/dist
+traffic_solver.exe

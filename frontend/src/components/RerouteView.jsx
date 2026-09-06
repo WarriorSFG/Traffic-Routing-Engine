@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import NetworkMap from './NetworkMap';
+import { API_BASE } from '../config';
 
 const rerouteIcons = {
   alertCircle: (
@@ -40,7 +41,7 @@ export default function RerouteView({ networkData }) {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/reroute', {
+      const res = await fetch(`${API_BASE}/api/reroute`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }
       });

@@ -42,8 +42,11 @@ def build():
     print(f"[BUILD] Pybind11 Include: {pybind11_inc}")
     print(f"[BUILD] Python Libs: {python_lib_dir} (lib: {python_version})")
 
-    # 3. Compile standalone CLI executable: traffic_solver.exe
-    exe_target = root_dir / "traffic_solver.exe"
+    is_win = (sys.platform == "win32")
+
+    # 3. Compile standalone CLI executable
+    exe_name = "traffic_solver.exe" if is_win else "traffic_solver"
+    exe_target = root_dir / exe_name
     print(f"\n[BUILD] Compiling standalone executable: {exe_target} ...")
     cmd_exe = [
         gpp,
@@ -57,54 +60,71 @@ def build():
     ]
     res_exe = subprocess.run(cmd_exe, capture_output=True, text=True)
     if res_exe.returncode != 0:
-        print("[BUILD ERROR] Failed to compile traffic_solver.exe:")
+        print(f"[BUILD ERROR] Failed to compile {exe_name}:")
         print(res_exe.stderr)
     else:
-        print("[BUILD SUCCESS] Compiled traffic_solver.exe successfully!")
+        print(f"[BUILD SUCCESS] Compiled {exe_name} successfully!")
 
-    # 4. Compile Pybind11 Python extension: qpso_engine.pyd
-    pyd_target = out_dir / "qpso_engine.pyd"
+    # 4. Compile Pybind11 Python extension (.pyd on Windows, .so on Linux)
+    ext_name = "qpso_engine.pyd" if is_win else "qpso_engine.so"
+    pyd_target = out_dir / ext_name
     print(f"\n[BUILD] Compiling pybind11 module: {pyd_target} ...")
 
-    # On Windows, if a running Python process has qpso_engine.pyd loaded, ld.exe cannot overwrite it.
-    # Renaming the loaded file allows a new file with the target name to be created.
+    # On Windows, if a running Python process has module loaded, rename it before overwriting
     if pyd_target.exists():
-        temp_backup = out_dir / f"qpso_engine.{os.getpid()}.old"
+        temp_backup = out_dir / f"{ext_name}.{os.getpid()}.old"
         try:
             pyd_target.rename(temp_backup)
         except Exception:
             pass
 
-    cmd_pyd = [
-        gpp,
-        "-O3",
-        "-shared",
-        "-std=c++20",
-        "-fopenmp",
-        "-static",
-        "-static-libgcc",
-        "-static-libstdc++",
-        f"-I{include_dir}",
-        f"-I{python_inc}",
-        f"-I{pybind11_inc}",
-        str(src_dir / "bindings.cpp"),
-        f"-L{python_lib_dir}",
-        f"-l{python_version}",
-        "-o",
-        str(pyd_target)
-    ]
+    if is_win:
+        cmd_pyd = [
+            gpp,
+            "-O3",
+            "-shared",
+            "-std=c++20",
+            "-fopenmp",
+            "-static",
+            "-static-libgcc",
+            "-static-libstdc++",
+            f"-I{include_dir}",
+            f"-I{python_inc}",
+            f"-I{pybind11_inc}",
+            str(src_dir / "bindings.cpp"),
+            f"-L{python_lib_dir}",
+            f"-l{python_version}",
+            "-o",
+            str(pyd_target)
+        ]
+    else:
+        cmd_pyd = [
+            gpp,
+            "-O3",
+            "-shared",
+            "-fPIC",
+            "-std=c++20",
+            "-fopenmp",
+            f"-I{include_dir}",
+            f"-I{python_inc}",
+            f"-I{pybind11_inc}",
+            str(src_dir / "bindings.cpp"),
+            "-o",
+            str(pyd_target)
+        ]
+
     res_pyd = subprocess.run(cmd_pyd, capture_output=True, text=True)
     if res_pyd.returncode != 0:
-        print("[BUILD ERROR] Failed to compile qpso_engine.pyd:")
+        print(f"[BUILD ERROR] Failed to compile {ext_name}:")
         print(res_pyd.stderr)
         raise RuntimeError("Pybind11 extension compilation failed.")
     else:
-        print("[BUILD SUCCESS] Compiled qpso_engine.pyd successfully!")
+        print(f"[BUILD SUCCESS] Compiled {ext_name} successfully!")
 
-    # Also copy to root directory or sys.path for convenient importing
-    root_pyd = root_dir / "qpso_engine.pyd"
+    # Also copy to root directory for convenient importing
+    root_pyd = root_dir / ext_name
     if root_pyd.exists():
-        temp_root_backup = root_dir / f"qpso_engine.{os.getpid()}.old"
+        temp_root_backup = root_dir / f"{ext_name}.{os.getpid()}.old"
         try:
             root_pyd.rename(temp_root_backup)
         except Exception:
@@ -114,7 +134,7 @@ def build():
         shutil.copy(pyd_target, root_pyd)
         print(f"[BUILD] Copied module to {root_pyd}")
     except PermissionError:
-        print(f"[BUILD WARNING] Could not overwrite root qpso_engine.pyd (locked by active process).")
+        print(f"[BUILD WARNING] Could not overwrite root {ext_name} (locked by active process).")
         print(f"[BUILD SUCCESS] Using fresh binary at {pyd_target}")
 
 

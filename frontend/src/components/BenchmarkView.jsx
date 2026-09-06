@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { API_BASE } from '../config';
 
 const benchIcons = {
   chart: (
@@ -46,7 +47,7 @@ export default function BenchmarkView({ params }) {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/benchmark', {
+      const res = await fetch(`${API_BASE}/api/benchmark`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

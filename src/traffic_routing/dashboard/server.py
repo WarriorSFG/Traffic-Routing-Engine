@@ -356,6 +356,7 @@ def _build_simulation_state(
     }
 
 
+
 @app.route("/api/reference", methods=["GET"])
 def get_reference():
     """Serves Reference.md parsed into chapters and full raw markdown for the Reference Book view."""
